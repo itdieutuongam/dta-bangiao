@@ -1,0 +1,9 @@
+employee_id,full_name,department,position,email,phone,status,created_at,updated_at
+DEMO-519,Phạm Danh Thái,KHTH,Nhân viên,thai.pham@example.com,,ACTIVE,,
+DEMO-101,Nguyễn Văn An,IT,Trưởng phòng,an.nguyen@example.com,,ACTIVE,,
+DEMO-102,Trần Thị Bích Ngọc,Kế toán,Kế toán viên,ngoc.tran@example.com,,ACTIVE,,
+DEMO-103,Lê Hoàng Đức,Kinh doanh,Nhân viên kinh doanh,duc.le@example.com,,ACTIVE,,
+DEMO-104,Đỗ Thị Hương,Hành chính,Chuyên viên hành chính,huong.do@example.com,,ACTIVE,,
+DEMO-105,Võ Minh Quân,IT,Kỹ thuật viên,quan.vo@example.com,,ACTIVE,,
+DEMO-106,Bùi Thanh Tâm,Marketing,Nhân viên thiết kế,tam.bui@example.com,,ACTIVE,,
+DEMO-107,Huỳnh Gia Bảo,Kho vận,Thủ kho,bao.huynh@example.com,,INACTIVE,,

@@ -1,0 +1,79 @@
+@import 'tailwindcss';
+
+/* Bảng màu lấy tinh thần thương hiệu Diệu Tướng Am: nâu – vàng – trắng – đen, giữ nhẹ và dễ đọc. */
+@theme {
+  --color-brand-50: #fbf7f1;
+  --color-brand-100: #f4ebdd;
+  --color-brand-200: #e7d4b8;
+  --color-brand-300: #d4b48a;
+  --color-brand-400: #b98e5c;
+  --color-brand-500: #9a6f42;
+  --color-brand-600: #7d5631;
+  --color-brand-700: #654425;
+  --color-brand-800: #4d331c;
+  --color-brand-900: #382513;
+
+  --color-gold-100: #f8efd4;
+  --color-gold-200: #f1dfa6;
+  --color-gold-300: #e8cc78;
+  --color-gold-400: #dcb85a;
+  --color-gold-500: #c49a2e;
+  --color-gold-600: #9f7b1f;
+
+  --color-canvas: #f7f4ef;
+
+  --font-sans:
+    system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, 'Noto Sans', 'Liberation Sans', sans-serif;
+}
+
+@layer base {
+  html {
+    -webkit-text-size-adjust: 100%;
+    text-size-adjust: 100%;
+  }
+
+  body {
+    @apply bg-canvas text-stone-900 antialiased;
+    min-height: 100dvh;
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--color-gold-500);
+    outline-offset: 2px;
+  }
+
+  ::selection {
+    background: var(--color-gold-200);
+  }
+
+  dialog::backdrop {
+    background: rgb(28 25 23 / 0.45);
+  }
+}
+
+@layer components {
+  .card {
+    @apply rounded-xl border border-stone-200 bg-white shadow-sm;
+  }
+
+  .field-input {
+    @apply w-full rounded-lg border border-stone-300 bg-white px-3 py-2 text-base text-stone-900 shadow-xs transition-colors placeholder:text-stone-400 focus:border-gold-500 focus:ring-2 focus:ring-gold-300/60 focus:outline-none disabled:cursor-not-allowed disabled:bg-stone-100 sm:text-sm;
+  }
+
+  .field-input[aria-invalid='true'] {
+    @apply border-red-400 focus:border-red-500 focus:ring-red-200;
+  }
+
+  .section-title {
+    @apply text-base font-semibold text-brand-800;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}

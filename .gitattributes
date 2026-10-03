@@ -1,0 +1,4 @@
+# Chuẩn hóa xuống dòng LF trong repo (dev trên Windows, deploy từ mọi nền tảng)
+* text=auto eol=lf
+*.png binary
+*.ico binary

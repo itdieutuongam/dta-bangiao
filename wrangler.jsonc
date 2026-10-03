@@ -1,0 +1,46 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "dta-handover",
+  "main": "./worker/index.ts",
+  "compatibility_date": "2026-10-01",
+
+  // URL mặc định sau deploy: https://dta-handover.<account-subdomain>.workers.dev
+  "workers_dev": true,
+  "preview_urls": false,
+
+  // Custom domain (zone dieutuongam.com phải thuộc cùng tài khoản Cloudflare).
+  // Bỏ comment dòng dưới rồi chạy `npm run deploy` — Cloudflare tự tạo DNS + SSL.
+  // "routes": [{ "pattern": "ban-giao.dieutuongam.com", "custom_domain": true }],
+
+  // Static assets (React SPA) + Worker API.
+  // @cloudflare/vite-plugin tự điền "directory" khi build — không khai báo thủ công.
+  "assets": {
+    "binding": "ASSETS",
+    "not_found_handling": "single-page-application",
+    "run_worker_first": ["/api/*"]
+  },
+
+  // Biến KHÔNG bí mật. APP_BASE_URL để trống = dùng domain của request hiện tại.
+  // Sau khi gắn custom domain có thể đặt "https://ban-giao.dieutuongam.com".
+  // Biến bí mật (GAS_WEB_APP_URL, GAS_SHARED_SECRET, ADMIN_PASSWORD, SESSION_SECRET,
+  // STAFF_ACCESS_CODE) cấu hình bằng `npx wrangler secret put <TÊN>` — không ghi vào file này.
+  "vars": {
+    "APP_BASE_URL": ""
+  },
+
+  // Cloudflare Workers Rate Limiting — giới hạn theo IP trong chu kỳ 60 giây.
+  // namespace_id: số nguyên tùy chọn, duy nhất trong tài khoản Cloudflare.
+  "ratelimits": [
+    { "name": "RL_PUBLIC", "namespace_id": "7301", "simple": { "limit": 120, "period": 60 } },
+    { "name": "RL_WRITE", "namespace_id": "7302", "simple": { "limit": 20, "period": 60 } },
+    { "name": "RL_AUTH", "namespace_id": "7303", "simple": { "limit": 10, "period": 60 } }
+  ],
+
+  // Workers Logs. Tắt invocation log mặc định vì nó ghi nguyên URL (chứa token link xác nhận);
+  // Worker tự ghi access log đã che token (worker/utils/log.ts).
+  "observability": {
+    "enabled": true,
+    "logs": { "enabled": true, "invocation_logs": false }
+  },
+  "upload_source_maps": true
+}

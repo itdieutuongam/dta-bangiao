@@ -1,0 +1,4 @@
+# clasp push chỉ đẩy code Apps Script + manifest (bỏ qua README, sample-data…)
+**/**
+!*.gs
+!appsscript.json

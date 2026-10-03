@@ -1,0 +1,35 @@
+# =============================================================================
+# DTA Handover – biến môi trường cho phát triển cục bộ (npm run dev / preview)
+#
+#   cp .dev.vars.example .dev.vars        (PowerShell: Copy-Item .dev.vars.example .dev.vars)
+#
+# .dev.vars nằm trong .gitignore – KHÔNG commit file chứa giá trị thật.
+# Production: dùng `npx wrangler secret put <TÊN_BIẾN>` (xem docs/CLOUDFLARE_DEPLOY.md).
+# =============================================================================
+
+# URL Web App của Google Apps Script (Deploy → Web app), dạng:
+# https://script.google.com/macros/s/AKfycb.../exec
+GAS_WEB_APP_URL=
+
+# Chuỗi bí mật dùng chung giữa Worker và Apps Script để ký HMAC từng request.
+# PHẢI trùng với Script Property BACKEND_SHARED_SECRET bên Apps Script.
+# Tạo ngẫu nhiên (>= 32 ký tự), ví dụ:
+#   node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
+GAS_SHARED_SECRET=
+
+# Mật khẩu đăng nhập trang quản trị /admin (nên >= 12 ký tự).
+ADMIN_PASSWORD=
+
+# Khóa ký cookie phiên quản trị + sinh link xác nhận (>= 32 ký tự ngẫu nhiên).
+# Lưu ý: đổi khóa này sẽ đăng xuất mọi phiên admin; link cũ vẫn dùng được
+# nhưng admin cần bấm "Tạo link mới" nếu muốn sao chép lại link.
+SESSION_SECRET=
+
+# URL gốc dùng để tạo link xác nhận. Để trống = tự lấy theo domain đang truy cập
+# (đúng cho cả `npm run dev` – http://localhost:5173 và `npm run preview` – http://localhost:4173).
+# Có thể đặt cố định, ví dụ: APP_BASE_URL=http://localhost:5173
+APP_BASE_URL=
+
+# (Tùy chọn) Mã truy cập nội bộ. Nếu đặt, trang tạo bàn giao và API danh sách
+# nhân viên yêu cầu nhập mã này trước khi dùng. Để trống = không yêu cầu.
+STAFF_ACCESS_CODE=

@@ -1,0 +1,48 @@
+{
+  "name": "dta-handover",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Hệ thống bàn giao nội bộ – Diệu Tướng Am (Cloudflare Workers + Google Apps Script + Google Sheets/Drive)",
+  "type": "module",
+  "engines": {
+    "node": ">=22.12"
+  },
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc -b && vite build",
+    "preview": "vite preview",
+    "typecheck": "tsc -b",
+    "deploy": "npm run build && wrangler deploy",
+    "test": "vitest run",
+    "test:e2e": "node scripts/e2e/run-e2e.mjs",
+    "gas:emulator": "node scripts/gas-emulator/server.mjs",
+    "gas:bundle": "node scripts/build-gas-bundle.mjs",
+    "cf-typegen": "wrangler types --include-env=false"
+  },
+  "dependencies": {
+    "lucide-react": "^1.51.0",
+    "qrcode-generator": "^2.0.4",
+    "react": "^19.3.0",
+    "react-dom": "^19.3.0",
+    "react-router": "^8.4.0",
+    "zod": "^4.6.5"
+  },
+  "devDependencies": {
+    "@cloudflare/vite-plugin": "^1.62.5",
+    "@tailwindcss/vite": "^4.3.3",
+    "@types/node": "^24.19.1",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "@vitejs/plugin-react": "^6.1.1",
+    "playwright-core": "^1.63.0",
+    "tailwindcss": "^4.3.3",
+    "typescript": "^7.0.2",
+    "vite": "^8.3.2",
+    "vitest": "^5.0.3",
+    "wrangler": "^4.147.0"
+  },
+  "allowScripts": {
+    "esbuild@0.28.1": true,
+    "workerd@1.20261001.1": true
+  }
+}
