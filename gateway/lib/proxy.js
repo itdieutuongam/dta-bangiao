@@ -2,6 +2,8 @@
 // Worker xử lý cả giao diện (static assets, SPA) lẫn API /api/*.
 
 const SECURITY_HEADERS = {
+  // Tên miền riêng chỉ phục vụ HTTPS (Cloudflare tự chuyển HTTP → HTTPS bằng 301).
+  'Strict-Transport-Security': 'max-age=31536000',
   'X-Content-Type-Options': 'nosniff',
   'X-Frame-Options': 'DENY',
   'Referrer-Policy': 'no-referrer',

@@ -27,7 +27,8 @@ SESSION_SECRET=
 
 # URL gốc dùng để tạo link xác nhận. Để trống = tự lấy theo domain đang truy cập
 # (đúng cho cả `npm run dev` – http://localhost:5173 và `npm run preview` – http://localhost:4173).
-# Có thể đặt cố định, ví dụ: APP_BASE_URL=http://localhost:5173
+# Dòng này ghi đè "APP_BASE_URL" trong wrangler.jsonc (production: https://bangiao.dieutuongam.com),
+# nên khi chạy local hãy giữ dòng này (để trống) để link trỏ về máy local.
 APP_BASE_URL=
 
 # (Tùy chọn) Mã truy cập nội bộ. Nếu đặt, trang tạo bàn giao và API danh sách

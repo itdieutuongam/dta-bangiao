@@ -4,7 +4,7 @@
 
 ```text
 ┌──────────────────────────┐       ┌───────────────────────────────────────────────┐
-│ Trình duyệt              │       │ Cloudflare (một Worker "dta-handover")        │
+│ Trình duyệt              │       │ Cloudflare (một Worker "dta-bangiao")         │
 │ React SPA (Vite build)   │ HTTPS │ ┌───────────────────┐  ┌────────────────────┐ │
 │ • /, /tao-ban-giao       │──────►│ │ Static Assets     │  │ Worker /api/*      │ │
 │ • /xac-nhan/:token       │       │ │ dist/client, SPA  │  │ worker/index.ts    │ │
@@ -34,6 +34,7 @@
 | Worker | Cloudflare Workers + Static Assets, `@cloudflare/vite-plugin` | API `/api/*`: validate lại (Zod), rate limit, phiên admin, sinh token link, ký HMAC, chuyển lỗi thành HTTP status |
 | Apps Script | V8 runtime | Xác thực request, nghiệp vụ, khóa ghi, đọc/ghi Sheet theo lô, lưu Drive, sinh PDF |
 | Lưu trữ | Google Sheets / Drive | Database & file (chữ ký, PDF, backup) |
+| Cổng tên miền | Cloudflare Pages Functions (`gateway/`) | Nhận `bangiao.dieutuongam.com` (DNS ở nhà cung cấp ngoài), chuyển nguyên request sang Worker qua Service Binding |
 
 Nguyên tắc: trình duyệt **chỉ** nói chuyện với Worker cùng domain. URL Apps Script và các secret chỉ tồn tại trong
 Cloudflare secrets / Script Properties.

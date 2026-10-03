@@ -26,7 +26,7 @@ kiểm tra và **ký tên** → biên bản, chữ ký và PDF được lưu tr�
 13. [Build](#13-build)
 14. [Preview](#14-preview)
 15. [Deploy lên Cloudflare](#15-deploy-lên-cloudflare)
-16. [Custom domain `ban-giao.dieutuongam.com`](#16-custom-domain)
+16. [Custom domain `bangiao.dieutuongam.com`](#16-custom-domain)
 17. [Sao lưu (backup)](#17-sao-lưu-backup)
 18. [Xử lý sự cố (troubleshooting)](#18-xử-lý-sự-cố)
 - [Lệnh npm](#lệnh-npm) · [Kiểm thử](#kiểm-thử) · [Vận hành hằng ngày](#vận-hành-hằng-ngày) · [Tài liệu chi tiết](#tài-liệu-chi-tiết)
@@ -117,7 +117,7 @@ npm run dev                             # http://localhost:5173 — SPA + Worker
 | `GAS_SHARED_SECRET` | ✔ | Chuỗi bí mật ≥ 32 ký tự, **trùng** Script Property `BACKEND_SHARED_SECRET` |
 | `ADMIN_PASSWORD` | ✔ | Mật khẩu trang `/admin` (nên ≥ 12 ký tự) |
 | `SESSION_SECRET` | ✔ | Khóa ≥ 32 ký tự ký cookie phiên + sinh link xác nhận |
-| `APP_BASE_URL` | – | URL gốc cho link xác nhận. Để trống = tự lấy domain đang truy cập |
+| `APP_BASE_URL` | – | URL gốc cho link xác nhận. Local: để trống = tự lấy domain đang truy cập (ghi đè giá trị production `https://bangiao.dieutuongam.com` trong `wrangler.jsonc`) |
 | `STAFF_ACCESS_CODE` | – | Nếu đặt: trang tạo bàn giao yêu cầu nhập mã truy cập nội bộ (khuyến nghị cho production) |
 
 Tạo chuỗi bí mật ngẫu nhiên:
@@ -231,9 +231,10 @@ npx wrangler secret put STAFF_ACCESS_CODE       # tùy chọn (khuyến nghị)
 
 Nếu Worker chưa tồn tại, lệnh đầu tiên sẽ hỏi tạo Worker `dta-bangiao` — chọn **Yes**.
 Secret được mã hóa trên Cloudflare, không nằm trong repo, không hiển thị cho trình duyệt. Xem/sửa: Dashboard →
-*Workers & Pages → dta-handover → Settings → Variables and Secrets*.
+*Workers & Pages → dta-bangiao → Settings → Variables and Secrets*.
 
-`APP_BASE_URL` là biến thường trong `wrangler.jsonc` (`vars`), mặc định để trống (tự lấy domain).
+`APP_BASE_URL` là biến thường trong `wrangler.jsonc` (`vars`), hiện là `https://bangiao.dieutuongam.com`
+(để trống = tự lấy domain đang truy cập).
 
 ## 13. Build
 
@@ -276,31 +277,34 @@ Chi tiết (rollback, logs, CI): [docs/CLOUDFLARE_DEPLOY.md](docs/CLOUDFLARE_DEP
 
 ## 16. Custom domain
 
-Mục tiêu: tên miền riêng, ví dụ `https://bangiao.dieutuongam.com` (SSL do Cloudflare cấp tự động, không cần VPS/IP).
+Đang dùng: **https://bangiao.dieutuongam.com** (SSL do Cloudflare cấp và tự gia hạn, không cần VPS/IP).
 
-> CNAME từ DNS bên ngoài trỏ thẳng tới `…workers.dev` **không hoạt động** (Workers chỉ nhận tên miền thuộc zone trên
-> Cloudflare → lỗi SSL).
-
-**DNS đang ở nhà cung cấp khác (ví dụ zonedns.vn):** dùng cổng Pages trong thư mục [`gateway/`](gateway/) — tạo dự án
-Pages từ repo (Root directory `gateway`, Build output `public`, không build command), gắn custom domain cho dự án Pages,
-đặt CNAME `bangiao` → `<dự-án>.pages.dev`. Chi tiết: [docs/CLOUDFLARE_DEPLOY.md §5a](docs/CLOUDFLARE_DEPLOY.md#5a-dns-của-tên-miền-đang-ở-nhà-cung-cấp-khác-ví-dụ-zonednsvn--dùng-cổng-pages).
-
-**DNS nằm trên Cloudflare (cùng tài khoản):**
-
-**Cách 1 — bằng cấu hình:** trong `wrangler.jsonc` bỏ comment dòng
-
-```jsonc
-"routes": [{ "pattern": "ban-giao.dieutuongam.com", "custom_domain": true }],
+```text
+DNS Nhân Hòa (zonedns.vn): CNAME bangiao → dta-bangiao-web.pages.dev
+Trình duyệt → Cloudflare Pages dta-bangiao-web (gateway/) → Service Binding APP → Worker dta-bangiao
 ```
 
-rồi `npm run deploy`. Cloudflare tự tạo bản ghi DNS và chứng chỉ SSL.
+- `wrangler.jsonc` → `"APP_BASE_URL": "https://bangiao.dieutuongam.com"`: mọi link xác nhận dùng tên miền này, kể cả khi
+  biên bản được tạo từ địa chỉ `…workers.dev` (địa chỉ này vẫn chạy, dùng làm dự phòng).
+- HTTP tự chuyển sang HTTPS (301); cổng Pages gửi thêm `Strict-Transport-Security`.
 
-**Cách 2 — Dashboard:** *Workers & Pages → dta-bangiao → Settings → Domains & Routes → Add → Custom domain* →
-nhập `ban-giao.dieutuongam.com`.
+> CNAME từ DNS bên ngoài trỏ thẳng tới `…workers.dev` **không hoạt động** (Workers chỉ nhận tên miền thuộc zone trên
+> Cloudflare → lỗi SSL). Vì vậy cần cổng Pages trong thư mục [`gateway/`](gateway/).
 
-Sau khi domain hoạt động, có thể đặt `"APP_BASE_URL": "https://ban-giao.dieutuongam.com"` trong `wrangler.jsonc` (mục
-`vars`) để mọi link xác nhận luôn dùng domain chính thức, rồi deploy lại. Nên bật *SSL/TLS → Edge Certificates →
-Always Use HTTPS* cho zone.
+**Thiết lập lại từ đầu (DNS ở nhà cung cấp khác):** tạo dự án Pages từ repo (Root directory `gateway`, Build output
+`public`, không build command), thêm Service binding `APP` → `dta-bangiao`, rồi *Custom domains → Set up a custom domain*
+→ **My DNS provider** → đặt CNAME `bangiao` → `<dự-án>.pages.dev` → *Check DNS records*. Chi tiết:
+[docs/CLOUDFLARE_DEPLOY.md §5a](docs/CLOUDFLARE_DEPLOY.md#5a-dns-của-tên-miền-đang-ở-nhà-cung-cấp-khác-ví-dụ-zonednsvn--dùng-cổng-pages).
+
+**Nếu sau này chuyển DNS `dieutuongam.com` sang Cloudflare (cùng tài khoản):** có thể bỏ cổng Pages, gắn thẳng vào
+Worker — gỡ tên miền khỏi dự án Pages trước, rồi bỏ comment dòng `routes` trong `wrangler.jsonc`:
+
+```jsonc
+"routes": [{ "pattern": "bangiao.dieutuongam.com", "custom_domain": true }],
+```
+
+hoặc Dashboard: *Workers & Pages → dta-bangiao → Settings → Domains & Routes → Add → Custom domain*. Nên bật
+*SSL/TLS → Edge Certificates → Always Use HTTPS* cho zone.
 
 ## 17. Sao lưu (backup)
 
@@ -333,7 +337,7 @@ Khôi phục: sao chép file backup thành Sheet mới → đặt `SPREADSHEET_I
 | PDF hiển thị sai font tiếng Việt | Bộ chuyển HTML→PDF của Google | Đổi `font-family` trong `apps-script/Pdf.gs` (ví dụ `'Times New Roman'`) |
 | Windows: `cp` không chạy | PowerShell | `Copy-Item .dev.vars.example .dev.vars` |
 
-Log: Cloudflare Dashboard → *Workers & Pages → dta-handover → Logs* (Worker tự ghi access log, đã che token);
+Log: Cloudflare Dashboard → *Workers & Pages → dta-bangiao → Logs* (Worker tự ghi access log, đã che token);
 Apps Script → *Executions*.
 
 ---

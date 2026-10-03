@@ -8,9 +8,10 @@
   "workers_dev": true,
   "preview_urls": false,
 
-  // Custom domain (zone dieutuongam.com phải thuộc cùng tài khoản Cloudflare).
-  // Bỏ comment dòng dưới rồi chạy `npm run deploy` — Cloudflare tự tạo DNS + SSL.
-  // "routes": [{ "pattern": "ban-giao.dieutuongam.com", "custom_domain": true }],
+  // Tên miền chính thức https://bangiao.dieutuongam.com: DNS nằm ở nhà cung cấp ngoài (zonedns.vn) nên đi qua cổng
+  // Cloudflare Pages `dta-bangiao-web` (thư mục gateway/, Service Binding → Worker này) — không khai báo routes ở đây.
+  // Chỉ khi zone dieutuongam.com chuyển sang Cloudflare mới gắn thẳng vào Worker (gỡ tên miền khỏi dự án Pages trước):
+  // "routes": [{ "pattern": "bangiao.dieutuongam.com", "custom_domain": true }],
 
   // Static assets (React SPA) + Worker API.
   // @cloudflare/vite-plugin tự điền "directory" khi build — không khai báo thủ công.
@@ -20,12 +21,12 @@
     "run_worker_first": ["/api/*"]
   },
 
-  // Biến KHÔNG bí mật. APP_BASE_URL để trống = dùng domain của request hiện tại.
-  // Sau khi gắn custom domain có thể đặt "https://ban-giao.dieutuongam.com".
+  // Biến KHÔNG bí mật. APP_BASE_URL = domain dùng trong mọi link xác nhận (kể cả biên bản tạo từ địa chỉ workers.dev);
+  // để trống = dùng domain của request hiện tại. Khi chạy local, dòng `APP_BASE_URL=` trong .dev.vars ghi đè giá trị này.
   // Biến bí mật (GAS_WEB_APP_URL, GAS_SHARED_SECRET, ADMIN_PASSWORD, SESSION_SECRET,
   // STAFF_ACCESS_CODE) cấu hình bằng `npx wrangler secret put <TÊN>` — không ghi vào file này.
   "vars": {
-    "APP_BASE_URL": ""
+    "APP_BASE_URL": "https://bangiao.dieutuongam.com"
   },
 
   // Cloudflare Workers Rate Limiting — giới hạn theo IP trong chu kỳ 60 giây.

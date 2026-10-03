@@ -46,7 +46,7 @@ npx wrangler secret put STAFF_ACCESS_CODE    # (tùy chọn) mã truy cập nộ
 | `ADMIN_PASSWORD` | secret | bắt buộc cho `/admin` |
 | `SESSION_SECRET` | secret | bắt buộc (phiên admin + sinh link) |
 | `STAFF_ACCESS_CODE` | secret | tùy chọn — bật yêu cầu mã truy cập khi tạo biên bản |
-| `APP_BASE_URL` | var (`wrangler.jsonc`) | để trống = tự lấy domain đang truy cập |
+| `APP_BASE_URL` | var (`wrangler.jsonc`) | hiện là `https://bangiao.dieutuongam.com`; để trống = tự lấy domain đang truy cập |
 
 ## 3. Deploy
 
@@ -57,8 +57,8 @@ npm run deploy            # = npm run build && wrangler deploy
 Output có dạng:
 
 ```text
-Uploaded dta-handover
-Deployed dta-handover triggers
+Uploaded dta-bangiao
+Deployed dta-bangiao triggers
   https://dta-bangiao.<account-subdomain>.workers.dev
 ```
 
@@ -97,10 +97,15 @@ cookie, IP người dùng).
 1. *Workers & Pages → Create → Pages → Import an existing Git repository* → chọn repo `dta-bangiao`.
 2. Cấu hình: **Project name** `dta-bangiao-web` · **Framework preset** None · **Build command** (để trống) ·
    **Build output directory** `public` · **Root directory (Advanced)** `gateway` → *Save and Deploy*.
-   Service Binding `APP → dta-bangiao` được khai báo sẵn trong `gateway/wrangler.toml`.
-3. Dự án `dta-bangiao-web` → *Custom domains → Set up a custom domain* → `bangiao.dieutuongam.com` → làm theo hướng dẫn
-   *CNAME setup*: tại nhà cung cấp DNS, đặt CNAME `bangiao` → `<tên-dự-án>.pages.dev` (thay cho `…workers.dev`).
+   Service Binding `APP → dta-bangiao` được khai báo sẵn trong `gateway/wrangler.toml`; nếu
+   `https://<tên-dự-án>.pages.dev/api/health` báo thiếu binding thì thêm ở *Settings → Bindings → Service binding*
+   rồi *Retry deployment*.
+3. Dự án `dta-bangiao-web` → *Custom domains → Set up a custom domain* → `bangiao.dieutuongam.com` → chọn
+   **My DNS provider** (*Begin CNAME setup*; **không** chọn *Begin DNS transfer*): tại nhà cung cấp DNS, đặt CNAME
+   `bangiao` → `<tên-dự-án>.pages.dev` (thay cho `…workers.dev`) → bấm *Check DNS records*.
 4. Chờ trạng thái **Active** (SSL tự cấp, thường 5–15 phút) → mở `https://bangiao.dieutuongam.com/api/health`.
+5. Đặt `"APP_BASE_URL": "https://bangiao.dieutuongam.com"` trong `wrangler.jsonc` rồi push để mọi link xác nhận dùng
+   tên miền chính thức (production đã đặt).
 
 Secrets vẫn chỉ đặt ở Worker `dta-bangiao`; dự án Pages không cần secret.
 
@@ -112,7 +117,7 @@ Secrets vẫn chỉ đặt ở Worker `dta-bangiao`; dự án Pages không cần
 
 ```jsonc
 // bỏ comment dòng này:
-"routes": [{ "pattern": "ban-giao.dieutuongam.com", "custom_domain": true }],
+"routes": [{ "pattern": "bangiao.dieutuongam.com", "custom_domain": true }],
 ```
 
 ```bash
@@ -120,7 +125,9 @@ npm run deploy
 ```
 
 **Cách 2 — Dashboard:** *Workers & Pages → dta-bangiao → Settings → Domains & Routes → Add → Custom domain*
-→ `ban-giao.dieutuongam.com` → *Add domain*.
+→ `bangiao.dieutuongam.com` → *Add domain*.
+
+(Nếu tên miền đang gắn vào dự án Pages ở §5a, gỡ khỏi dự án Pages trước.)
 
 Cloudflare tự tạo bản ghi DNS và chứng chỉ SSL (thường vài phút). Không cần bản ghi A/IP thủ công.
 
@@ -128,7 +135,7 @@ Sau đó (khuyến nghị):
 
 1. Đặt link chính thức cho mọi biên bản: trong `wrangler.jsonc`
    ```jsonc
-   "vars": { "APP_BASE_URL": "https://ban-giao.dieutuongam.com" }
+   "vars": { "APP_BASE_URL": "https://bangiao.dieutuongam.com" }
    ```
    rồi `npm run deploy`.
 2. Zone `dieutuongam.com` → *SSL/TLS → Edge Certificates → Always Use HTTPS: On*.
@@ -150,7 +157,7 @@ có thể xóa khối này — Worker tự chuyển sang bộ đếm dự phòng
 
 ## 7. Logs & giám sát
 
-- Dashboard → *Workers & Pages → dta-handover → Logs* (Workers Logs đã bật trong `wrangler.jsonc`).
+- Dashboard → *Workers & Pages → dta-bangiao → Logs* (Workers Logs đã bật trong `wrangler.jsonc`).
   Invocation log mặc định **bị tắt** vì chứa nguyên URL (có token); Worker tự ghi access log JSON với token đã che
   (`/api/handover/AbCdEf…`), mã lỗi, thời gian xử lý và `requestId` (trùng header `X-Request-Id` trả về trình duyệt).
 - Xem log trực tiếp: `npx wrangler tail`.
@@ -224,8 +231,9 @@ Secrets của Worker (`GAS_WEB_APP_URL`…) vẫn đặt bằng `wrangler secret
 ## 10. (Tùy chọn) Bảo vệ thêm trang quản trị bằng Cloudflare Access
 
 Ngoài mật khẩu admin, có thể đặt *Zero Trust → Access → Applications → Self-hosted* cho
-`ban-giao.dieutuongam.com/admin*` và `ban-giao.dieutuongam.com/api/admin/*`, chỉ cho phép email `@dieutuongam.com`
+`bangiao.dieutuongam.com/admin*` và `bangiao.dieutuongam.com/api/admin/*`, chỉ cho phép email `@dieutuongam.com`
 (gói Free tối đa 50 người dùng). Không áp dụng cho `/xac-nhan/*`, `/api/handover/*` (người nhận ký qua link).
+Điều kiện: zone `dieutuongam.com` phải nằm trên Cloudflare (hiện DNS ở zonedns.vn nên chưa dùng được cách này).
 
 ## 11. Chi phí tham khảo
 

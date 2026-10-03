@@ -80,7 +80,7 @@ Thực hiện sau khi deploy (bộ giả lập không thay thế được các b
       Copy link; Tạo link mới; Hủy; Đăng xuất.
 - [ ] Sửa trực tiếp `NHAN_VIEN` → *Làm mới dữ liệu NV* → nhân viên mới xuất hiện.
 - [ ] Thêm một loại trong `LOAI_BAN_GIAO` → xuất hiện trên form sau khi làm mới.
-- [ ] Custom domain `https://ban-giao.dieutuongam.com` hoạt động, link xác nhận dùng domain này.
+- [ ] Custom domain `https://bangiao.dieutuongam.com` hoạt động, link xác nhận dùng domain này.
 - [ ] Response trang có header `Content-Security-Policy`, `Referrer-Policy: no-referrer` (DevTools → Network).
 - [ ] View source / DevTools → Sources: không có `script.google.com` hay secret trong JS.
 - [ ] Chạy `backupNow()` → bản sao trong `DTA_HANDOVER/backups`.

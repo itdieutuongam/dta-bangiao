@@ -1,6 +1,6 @@
 # API — DTA Handover (Cloudflare Worker)
 
-Base URL: cùng domain với giao diện (ví dụ `https://ban-giao.dieutuongam.com`). Body JSON (`Content-Type: application/json`).
+Base URL: cùng domain với giao diện (ví dụ `https://bangiao.dieutuongam.com`). Body JSON (`Content-Type: application/json`).
 Request thay đổi dữ liệu (POST/PUT) phải gửi từ cùng origin (header `Origin`).
 
 ## Định dạng response

@@ -74,6 +74,8 @@ Link xác nhận của người nhận **không** yêu cầu mã này. Khuyến 
 - **XSS:** React luôn render nội dung người dùng dạng text; không dùng `dangerouslySetInnerHTML` (mã QR vẽ bằng SVG path,
   không chèn HTML); CSP `default-src 'self'; script-src 'self'; object-src 'none'; frame-ancestors 'none'…`;
   `X-Content-Type-Options: nosniff`; `X-Frame-Options: DENY`. Link tài liệu chỉ chấp nhận `http(s)://`.
+- **HTTPS:** tên miền riêng chỉ phục vụ HTTPS — HTTP được Cloudflare chuyển 301 sang HTTPS, cổng Pages (`gateway/`)
+  gửi `Strict-Transport-Security: max-age=31536000`.
 - PDF: mọi giá trị được escape HTML trước khi dựng.
 - **Formula injection (Google Sheets):** giá trị bắt đầu bằng `= + - @` được ghi kèm `'`; ô dữ liệu định dạng văn bản.
 - **Validation 3 lớp:** frontend (UX) → Worker (Zod, giới hạn kích thước body, kiểm tra PNG) → Apps Script (kiểm tra lại
