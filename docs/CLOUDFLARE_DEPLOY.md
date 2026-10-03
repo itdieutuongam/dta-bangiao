@@ -83,10 +83,30 @@ HTTP 503 kèm `data` cho biết thành phần chưa sẵn sàng (xem *Xử lý s
 Kiểm tra thủ công: mở `/` (tạo thử một biên bản với nhân viên mẫu), mở link xác nhận trên điện thoại và ký,
 đăng nhập `/admin`, tải PDF. Checklist đầy đủ: [TESTING.md](TESTING.md#4-checklist-nghiệm-thu-trên-google--cloudflare-thật).
 
-## 5. Custom domain `ban-giao.dieutuongam.com`
+## 5. Custom domain (ví dụ `bangiao.dieutuongam.com`)
+
+> **Không** tạo CNAME từ DNS bên ngoài trỏ thẳng tới `…workers.dev` — Cloudflare Workers chỉ nhận tên miền thuộc zone
+> nằm trên Cloudflare; CNAME như vậy sẽ lỗi SSL (`ERR_SSL_PROTOCOL_ERROR` / handshake failed).
+
+### 5a. DNS của tên miền đang ở nhà cung cấp khác (ví dụ zonedns.vn) — dùng cổng Pages
+
+Thư mục [`gateway/`](../gateway/) là một dự án **Cloudflare Pages** rất nhỏ: nhận tên miền phụ (Pages cho phép CNAME từ DNS
+bên ngoài) rồi chuyển nguyên request vào Worker `dta-bangiao` qua **Service Binding** (nội bộ Cloudflare, giữ tên miền,
+cookie, IP người dùng).
+
+1. *Workers & Pages → Create → Pages → Import an existing Git repository* → chọn repo `dta-bangiao`.
+2. Cấu hình: **Project name** `dta-bangiao-web` · **Framework preset** None · **Build command** (để trống) ·
+   **Build output directory** `public` · **Root directory (Advanced)** `gateway` → *Save and Deploy*.
+   Service Binding `APP → dta-bangiao` được khai báo sẵn trong `gateway/wrangler.toml`.
+3. Dự án `dta-bangiao-web` → *Custom domains → Set up a custom domain* → `bangiao.dieutuongam.com` → làm theo hướng dẫn
+   *CNAME setup*: tại nhà cung cấp DNS, đặt CNAME `bangiao` → `<tên-dự-án>.pages.dev` (thay cho `…workers.dev`).
+4. Chờ trạng thái **Active** (SSL tự cấp, thường 5–15 phút) → mở `https://bangiao.dieutuongam.com/api/health`.
+
+Secrets vẫn chỉ đặt ở Worker `dta-bangiao`; dự án Pages không cần secret.
+
+### 5b. DNS của tên miền nằm trên Cloudflare — gắn trực tiếp vào Worker
 
 Điều kiện: zone `dieutuongam.com` đã được thêm vào **cùng tài khoản Cloudflare** và dùng nameserver của Cloudflare.
-(Nếu DNS đang ở nhà cung cấp khác, chuyển nameserver về Cloudflare trước — gói Free hỗ trợ.)
 
 **Cách 1 — trong `wrangler.jsonc` (được version control):**
 
@@ -99,7 +119,7 @@ Kiểm tra thủ công: mở `/` (tạo thử một biên bản với nhân viê
 npm run deploy
 ```
 
-**Cách 2 — Dashboard:** *Workers & Pages → dta-handover → Settings → Domains & Routes → Add → Custom domain*
+**Cách 2 — Dashboard:** *Workers & Pages → dta-bangiao → Settings → Domains & Routes → Add → Custom domain*
 → `ban-giao.dieutuongam.com` → *Add domain*.
 
 Cloudflare tự tạo bản ghi DNS và chứng chỉ SSL (thường vài phút). Không cần bản ghi A/IP thủ công.

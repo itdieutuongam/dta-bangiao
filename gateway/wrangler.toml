@@ -1,0 +1,16 @@
+# Cloudflare Pages "cổng vào" cho tên miền riêng khi DNS của tên miền KHÔNG nằm trên Cloudflare
+# (ví dụ dieutuongam.com dùng nameserver zonedns.vn).
+#
+# Workers chỉ nhận custom domain khi zone nằm trên Cloudflare; Pages thì cho phép tên miền phụ
+# trỏ CNAME từ DNS bên ngoài. Dự án Pages này nhận bangiao.dieutuongam.com rồi chuyển nguyên
+# request sang Worker dta-bangiao qua Service Binding (không đi ra internet).
+#
+# Tạo dự án: Workers & Pages → Create → Pages → Connect to Git → repo này,
+#   Root directory: gateway · Build command: (trống) · Build output directory: public
+name = "dta-bangiao-web"
+pages_build_output_dir = "./public"
+compatibility_date = "2026-10-01"
+
+[[services]]
+binding = "APP"
+service = "dta-bangiao"

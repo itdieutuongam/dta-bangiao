@@ -276,10 +276,18 @@ Chi tiết (rollback, logs, CI): [docs/CLOUDFLARE_DEPLOY.md](docs/CLOUDFLARE_DEP
 
 ## 16. Custom domain
 
-Mục tiêu: `https://ban-giao.dieutuongam.com` (SSL do Cloudflare cấp tự động, không cần VPS/IP).
-Điều kiện: zone `dieutuongam.com` đang dùng DNS của Cloudflare trong **cùng tài khoản**.
+Mục tiêu: tên miền riêng, ví dụ `https://bangiao.dieutuongam.com` (SSL do Cloudflare cấp tự động, không cần VPS/IP).
 
-**Cách 1 — bằng cấu hình (khuyến nghị):** trong `wrangler.jsonc` bỏ comment dòng
+> CNAME từ DNS bên ngoài trỏ thẳng tới `…workers.dev` **không hoạt động** (Workers chỉ nhận tên miền thuộc zone trên
+> Cloudflare → lỗi SSL).
+
+**DNS đang ở nhà cung cấp khác (ví dụ zonedns.vn):** dùng cổng Pages trong thư mục [`gateway/`](gateway/) — tạo dự án
+Pages từ repo (Root directory `gateway`, Build output `public`, không build command), gắn custom domain cho dự án Pages,
+đặt CNAME `bangiao` → `<dự-án>.pages.dev`. Chi tiết: [docs/CLOUDFLARE_DEPLOY.md §5a](docs/CLOUDFLARE_DEPLOY.md#5a-dns-của-tên-miền-đang-ở-nhà-cung-cấp-khác-ví-dụ-zonednsvn--dùng-cổng-pages).
+
+**DNS nằm trên Cloudflare (cùng tài khoản):**
+
+**Cách 1 — bằng cấu hình:** trong `wrangler.jsonc` bỏ comment dòng
 
 ```jsonc
 "routes": [{ "pattern": "ban-giao.dieutuongam.com", "custom_domain": true }],
@@ -287,7 +295,7 @@ Mục tiêu: `https://ban-giao.dieutuongam.com` (SSL do Cloudflare cấp tự đ
 
 rồi `npm run deploy`. Cloudflare tự tạo bản ghi DNS và chứng chỉ SSL.
 
-**Cách 2 — Dashboard:** *Workers & Pages → dta-handover → Settings → Domains & Routes → Add → Custom domain* →
+**Cách 2 — Dashboard:** *Workers & Pages → dta-bangiao → Settings → Domains & Routes → Add → Custom domain* →
 nhập `ban-giao.dieutuongam.com`.
 
 Sau khi domain hoạt động, có thể đặt `"APP_BASE_URL": "https://ban-giao.dieutuongam.com"` trong `wrangler.jsonc` (mục
