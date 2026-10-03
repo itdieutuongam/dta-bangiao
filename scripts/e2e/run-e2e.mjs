@@ -3,7 +3,7 @@
  * Chạy test end-to-end trên runtime Cloudflare thật (workerd) — không cần tài khoản Google/Cloudflare:
  *   1. npm run build (bỏ qua bằng --skip-build)
  *   2. Khởi động Apps Script GIẢ LẬP (scripts/gas-emulator) với secret ngẫu nhiên
- *   3. `wrangler dev` chạy bản build production (dist/dta_handover/wrangler.json) với biến môi trường test
+ *   3. `wrangler dev` chạy bản build production (dist/<tên worker>/wrangler.json) với biến môi trường test
  *   4. vitest --config vitest.e2e.config.ts (API + giao diện trên Chrome/Edge cài sẵn)
  *
  *   npm run test:e2e            (biến tùy chọn: E2E_PORT, E2E_BROWSER_PATH, E2E_HEADED=1)
@@ -57,6 +57,15 @@ async function waitForHealth(timeoutMs) {
   throw new Error(`Worker không sẵn sàng sau ${timeoutMs / 1000}s: ${last}`);
 }
 
+/** Cấu hình Worker đã build — Vite plugin ghi đường dẫn vào .wrangler/deploy/config.json. */
+function resolveBuiltConfig() {
+  const redirect = path.join(ROOT, '.wrangler', 'deploy', 'config.json');
+  if (!fs.existsSync(redirect)) return null;
+  const { configPath } = JSON.parse(fs.readFileSync(redirect, 'utf8'));
+  const resolved = path.resolve(path.dirname(redirect), configPath);
+  return fs.existsSync(resolved) ? resolved : null;
+}
+
 async function main() {
   if (!process.argv.includes('--skip-build')) {
     log('Build production…');
@@ -65,11 +74,11 @@ async function main() {
       : spawnSync('npm', ['run', 'build'], { cwd: ROOT, stdio: 'inherit', shell: true });
     if (build.status !== 0) process.exit(build.status ?? 1);
   }
-  const builtConfig = path.join(ROOT, 'dist', 'dta_handover', 'wrangler.json');
-  if (!fs.existsSync(builtConfig)) throw new Error('Chưa có dist/dta_handover/wrangler.json — hãy chạy npm run build.');
+  const builtConfig = resolveBuiltConfig();
+  if (!builtConfig) throw new Error('Chưa có bản build Worker (dist/<tên worker>/wrangler.json) — hãy chạy npm run build.');
 
   // .dev.vars trong thư mục build (nếu có) được ưu tiên hơn --var → tạm đổi tên trong lúc test.
-  const builtDevVars = path.join(ROOT, 'dist', 'dta_handover', '.dev.vars');
+  const builtDevVars = path.join(path.dirname(builtConfig), '.dev.vars');
   const backup = `${builtDevVars}.e2e-backup`;
   if (fs.existsSync(builtDevVars)) fs.renameSync(builtDevVars, backup);
 

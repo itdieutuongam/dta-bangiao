@@ -1,6 +1,6 @@
 # Deploy lên Cloudflare Workers
 
-Một Worker tên **`dta-handover`** phục vụ cả giao diện (Workers Static Assets) và API `/api/*`.
+Một Worker tên **`dta-bangiao`** phục vụ cả giao diện (Workers Static Assets) và API `/api/*`.
 Không cần VPS, không cần IP, SSL do Cloudflare cấp.
 
 ## 0. Chuẩn bị
@@ -35,7 +35,7 @@ npx wrangler secret put SESSION_SECRET       # ≥ 32 ký tự ngẫu nhiên
 npx wrangler secret put STAFF_ACCESS_CODE    # (tùy chọn) mã truy cập nội bộ cho trang tạo bàn giao
 ```
 
-- Mỗi lệnh hỏi giá trị (dán rồi Enter). Lần đầu, Wrangler hỏi tạo Worker `dta-handover` chưa tồn tại → **Yes**.
+- Mỗi lệnh hỏi giá trị (dán rồi Enter). Lần đầu, Wrangler hỏi tạo Worker `dta-bangiao` chưa tồn tại → **Yes**.
 - Kiểm tra danh sách: `npx wrangler secret list` (chỉ hiện tên, không hiện giá trị).
 - Secret không nằm trong repo và không bao giờ được gửi xuống trình duyệt.
 
@@ -59,16 +59,16 @@ Output có dạng:
 ```text
 Uploaded dta-handover
 Deployed dta-handover triggers
-  https://dta-handover.<account-subdomain>.workers.dev
+  https://dta-bangiao.<account-subdomain>.workers.dev
 ```
 
-`wrangler deploy` dùng cấu hình đã được Vite plugin chuyển hướng tới `dist/dta_handover/wrangler.json`
+`wrangler deploy` dùng cấu hình đã được Vite plugin chuyển hướng tới `dist/dta_bangiao/wrangler.json`
 (Worker + thư mục assets `dist/client`).
 
 ## 4. Kiểm tra sau deploy
 
 ```bash
-curl https://dta-handover.<account-subdomain>.workers.dev/api/health
+curl https://dta-bangiao.<account-subdomain>.workers.dev/api/health
 ```
 
 Kết quả mong đợi (HTTP 200):
@@ -156,7 +156,7 @@ Cloudflare tự build và deploy mỗi khi push lên nhánh `main`, không cần
 
    | Mục | Giá trị |
    |---|---|
-   | Project name | **`dta-handover`** — phải trùng `name` trong `wrangler.jsonc` |
+   | Project name | **`dta-bangiao`** — phải trùng `name` trong `wrangler.jsonc` |
    | Build command | `npm run build` |
    | Deploy command | `npx wrangler deploy` |
    | Non-production branch deploy command | `npx wrangler versions upload` (mặc định) |
@@ -166,7 +166,7 @@ Cloudflare tự build và deploy mỗi khi push lên nhánh `main`, không cần
 3. **Save and Deploy**. Lần đầu Worker chạy được nhưng `/api/health` báo `not_configured` (chưa có secret).
 4. **Settings → Variables and Secrets → Add** (Type: **Secret**): `GAS_WEB_APP_URL`, `GAS_SHARED_SECRET`, `ADMIN_PASSWORD`,
    `SESSION_SECRET` (+ `STAFF_ACCESS_CODE` nếu dùng) → **Deploy**. Secret không bị ghi đè khi build lại.
-5. Mở `https://dta-handover.<account-subdomain>.workers.dev/api/health` → phải trả `"appsScript":"ok"`.
+5. Mở `https://dta-bangiao.<account-subdomain>.workers.dev/api/health` → phải trả `"appsScript":"ok"`.
 
 Lưu ý: biến thường (Text) đặt trong Dashboard sẽ bị `vars` của `wrangler.jsonc` ghi đè ở lần deploy sau — muốn đặt
 `APP_BASE_URL` thì sửa trong `wrangler.jsonc` rồi push. Xem log build: *Worker → Deployments → View build*.

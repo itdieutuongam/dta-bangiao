@@ -229,7 +229,7 @@ npx wrangler secret put SESSION_SECRET
 npx wrangler secret put STAFF_ACCESS_CODE       # tùy chọn (khuyến nghị)
 ```
 
-Nếu Worker chưa tồn tại, lệnh đầu tiên sẽ hỏi tạo Worker `dta-handover` — chọn **Yes**.
+Nếu Worker chưa tồn tại, lệnh đầu tiên sẽ hỏi tạo Worker `dta-bangiao` — chọn **Yes**.
 Secret được mã hóa trên Cloudflare, không nằm trong repo, không hiển thị cho trình duyệt. Xem/sửa: Dashboard →
 *Workers & Pages → dta-handover → Settings → Variables and Secrets*.
 
@@ -239,7 +239,7 @@ Secret được mã hóa trên Cloudflare, không nằm trong repo, không hiể
 
 ```bash
 npm run typecheck     # TypeScript: frontend + Worker + test
-npm run build         # tsc -b && vite build → dist/client (SPA) + dist/dta_handover (Worker + wrangler.json)
+npm run build         # tsc -b && vite build → dist/client (SPA) + dist/dta_bangiao (Worker + wrangler.json)
 ```
 
 ## 14. Preview
@@ -254,7 +254,7 @@ Preview dùng `.dev.vars` giống `npm run dev`.
 ## 15. Deploy lên Cloudflare
 
 **Cách 1 — tự động từ GitHub (khuyến nghị):** kết nối repo trong Cloudflare Dashboard (*Workers & Pages → Create →
-Import a repository*), project name `dta-handover`, build `npm run build`, deploy `npx wrangler deploy`, rồi thêm secrets
+Import a repository*), project name `dta-bangiao`, build `npm run build`, deploy `npx wrangler deploy`, rồi thêm secrets
 trong *Settings → Variables and Secrets*. Mỗi lần push `main` sẽ tự deploy — chi tiết
 [docs/CLOUDFLARE_DEPLOY.md §9](docs/CLOUDFLARE_DEPLOY.md#9-deploy-tự-động-từ-github-workers-builds--khuyến-nghị).
 
@@ -265,10 +265,10 @@ npx wrangler login    # nếu chưa đăng nhập
 npm run deploy        # = npm run build && wrangler deploy
 ```
 
-Kết quả in ra URL dạng `https://dta-handover.<account-subdomain>.workers.dev`. Kiểm tra ngay:
+Kết quả in ra URL dạng `https://dta-bangiao.<account-subdomain>.workers.dev`. Kiểm tra ngay:
 
 ```bash
-curl https://dta-handover.<account-subdomain>.workers.dev/api/health
+curl https://dta-bangiao.<account-subdomain>.workers.dev/api/health
 # {"success":true,"data":{"app":"dta-handover","cloudflare":"ok","appsScript":"ok","database":"ok","drive":"ok",…}}
 ```
 

@@ -1,10 +1,10 @@
 {
   "$schema": "./node_modules/wrangler/config-schema.json",
-  "name": "dta-handover",
+  "name": "dta-bangiao",
   "main": "./worker/index.ts",
   "compatibility_date": "2026-10-01",
 
-  // URL mặc định sau deploy: https://dta-handover.<account-subdomain>.workers.dev
+  // URL mặc định sau deploy: https://dta-bangiao.<account-subdomain>.workers.dev
   "workers_dev": true,
   "preview_urls": false,
 
