@@ -1,37 +1,28 @@
-import type {
-  Category,
-  CreateHandoverResult,
-  Employee,
-  HandoverInput,
-  PublicHandover,
-  PublicHandoverResponse,
-  StaffSessionInfo,
-} from '../../shared/types';
+import type { OtpRequestResult, PublicHandover, PublicHandoverResponse, StaffSessionInfo } from '../../shared/types';
 import { apiRequest } from './api';
 
-export async function getEmployees(): Promise<Employee[]> {
-  return (await apiRequest<{ employees: Employee[] }>('/api/employees')).employees;
-}
+/** API công khai: người nhận xem / ký / yêu cầu sửa qua link; mã truy cập nội bộ (trang đề xuất VPP). */
 
-export async function getCategories(): Promise<Category[]> {
-  return (await apiRequest<{ categories: Category[] }>('/api/categories')).categories;
+export function staffSession(): Promise<StaffSessionInfo> {
+  return apiRequest<StaffSessionInfo>('/api/staff/session');
 }
 
 export function staffLogin(code: string): Promise<StaffSessionInfo> {
   return apiRequest<StaffSessionInfo>('/api/staff/login', { method: 'POST', body: { code } });
 }
 
-export function createHandover(input: HandoverInput): Promise<CreateHandoverResult> {
-  return apiRequest<CreateHandoverResult>('/api/handover', { method: 'POST', body: input });
-}
-
 export function getPublicHandover(token: string): Promise<PublicHandoverResponse> {
   return apiRequest<PublicHandoverResponse>(`/api/handover/${encodeURIComponent(token)}`);
 }
 
+/** Gửi mã xác nhận 6 số tới email người nhận (khi biên bản yêu cầu mã OTP). */
+export function requestConfirmOtp(token: string): Promise<OtpRequestResult> {
+  return apiRequest<OtpRequestResult>(`/api/handover/${encodeURIComponent(token)}/otp`, { method: 'POST', body: {} });
+}
+
 export async function confirmHandover(
   token: string,
-  body: { agreed: true; signature: string; comment: string },
+  body: { agreed: true; signature: string; comment: string; contentHash: string; otp: string },
 ): Promise<PublicHandover> {
   const data = await apiRequest<{ handover: PublicHandover }>(`/api/handover/${encodeURIComponent(token)}/confirm`, {
     method: 'POST',
@@ -40,10 +31,10 @@ export async function confirmHandover(
   return data.handover;
 }
 
-export async function requestRevision(token: string, reason: string): Promise<PublicHandover> {
+export async function requestRevision(token: string, reason: string, contentHash: string): Promise<PublicHandover> {
   const data = await apiRequest<{ handover: PublicHandover }>(
     `/api/handover/${encodeURIComponent(token)}/request-revision`,
-    { method: 'POST', body: { reason } },
+    { method: 'POST', body: { reason, contentHash } },
   );
   return data.handover;
 }

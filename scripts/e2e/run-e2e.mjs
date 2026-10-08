@@ -7,6 +7,11 @@
  *   4. vitest --config vitest.e2e.config.ts (API + giao diện trên Chrome/Edge cài sẵn)
  *
  *   npm run test:e2e            (biến tùy chọn: E2E_PORT, E2E_BROWSER_PATH, E2E_HEADED=1)
+ *
+ * Chế độ tách máy (ví dụ workerd chỉ chạy được trong WSL, trình duyệt ở Windows):
+ *   node scripts/e2e/run-e2e.mjs --serve [--skip-build]   → chỉ chạy Apps Script giả lập + Worker, ghi biến E2E_* ra
+ *                                                            tệp E2E_ENV_FILE (mặc định .e2e/env.json) rồi chờ Ctrl+C.
+ *   E2E_ENV_FILE=… npx vitest run --config vitest.e2e.config.ts   → chạy test ở máy có trình duyệt (đọc tệp trên).
  */
 import { spawn, spawnSync } from 'node:child_process';
 import crypto from 'node:crypto';
@@ -82,9 +87,12 @@ async function main() {
   const backup = `${builtDevVars}.e2e-backup`;
   if (fs.existsSync(builtDevVars)) fs.renameSync(builtDevVars, backup);
 
+  const serveOnly = process.argv.includes('--serve');
   const secret = crypto.randomBytes(32).toString('hex');
   const adminPassword = `E2E-${crypto.randomBytes(9).toString('base64url')}`;
-  const emulator = await startGasEmulator({ port: 0, secret, quiet: true });
+  const staffCode = `NV-${crypto.randomBytes(6).toString('base64url')}`;
+  // Có dữ liệu văn phòng phẩm như sau khi chủ Sheet chạy "Khởi tạo định mức" + "Nhập tồn đầu kỳ".
+  const emulator = await startGasEmulator({ port: Number(process.env.E2E_EMULATOR_PORT ?? 0), secret, quiet: true, vpp: true });
   log(`Apps Script giả lập: ${emulator.url}`);
 
   const vars = {
@@ -93,6 +101,15 @@ async function main() {
     ADMIN_PASSWORD: adminPassword,
     SESSION_SECRET: crypto.randomBytes(32).toString('hex'),
     APP_BASE_URL: BASE,
+    STAFF_ACCESS_CODE: staffCode,
+    // Niêm phong biên bản đã ký như production (dữ liệu giả lập mất khi tắt → khóa ngẫu nhiên mỗi lượt).
+    RECORD_SEAL_SECRET: crypto.randomBytes(32).toString('hex'),
+  };
+  const testEnv = {
+    E2E_BASE_URL: BASE,
+    E2E_ADMIN_PASSWORD: adminPassword,
+    E2E_STAFF_CODE: staffCode,
+    E2E_EMULATOR_STATE_URL: emulator.url.replace(/\/macros\/.*/, '/__emulator/state'),
   };
   const args = [bin.wrangler, 'dev', '-c', builtConfig, '--port', String(PORT), '--ip', '127.0.0.1', '--log-level', 'warn'];
   for (const [key, value] of Object.entries(vars)) args.push('--var', `${key}:${value}`);
@@ -111,24 +128,29 @@ async function main() {
   let exitCode = 1;
   try {
     await waitForHealth(120_000);
-    log('Worker sẵn sàng. Chạy test e2e…');
-    // Dùng spawn bất đồng bộ: Apps Script giả lập chạy trong chính process này,
-    // spawnSync sẽ chặn event loop khiến giả lập không phản hồi được.
-    const vitest = spawn(
-      node,
-      [bin.vitest, 'run', '--config', 'vitest.e2e.config.ts', ...process.argv.slice(2).filter((a) => a !== '--skip-build')],
-      {
+    if (serveOnly) {
+      const envFile = path.resolve(ROOT, process.env.E2E_ENV_FILE ?? path.join('.e2e', 'env.json'));
+      fs.mkdirSync(path.dirname(envFile), { recursive: true });
+      fs.writeFileSync(envFile, JSON.stringify(testEnv, null, 2));
+      log(`Worker sẵn sàng tại ${BASE}. Biến test đã ghi vào ${envFile}. Ctrl+C để dừng.`);
+      exitCode = await new Promise((resolve) => {
+        const stop = () => resolve(0);
+        process.on('SIGINT', stop);
+        process.on('SIGTERM', stop);
+        worker.on('exit', (code) => resolve(code ?? 1));
+      });
+    } else {
+      log('Worker sẵn sàng. Chạy test e2e…');
+      // Dùng spawn bất đồng bộ: Apps Script giả lập chạy trong chính process này,
+      // spawnSync sẽ chặn event loop khiến giả lập không phản hồi được.
+      const passThrough = process.argv.slice(2).filter((a) => a !== '--skip-build' && a !== '--serve');
+      const vitest = spawn(node, [bin.vitest, 'run', '--config', 'vitest.e2e.config.ts', ...passThrough], {
         cwd: ROOT,
         stdio: 'inherit',
-        env: {
-          ...process.env,
-          E2E_BASE_URL: BASE,
-          E2E_ADMIN_PASSWORD: adminPassword,
-          E2E_EMULATOR_STATE_URL: emulator.url.replace(/\/macros\/.*/, '/__emulator/state'),
-        },
-      },
-    );
-    exitCode = await new Promise((resolve) => vitest.on('exit', (code) => resolve(code ?? 1)));
+        env: { ...process.env, ...testEnv },
+      });
+      exitCode = await new Promise((resolve) => vitest.on('exit', (code) => resolve(code ?? 1)));
+    }
   } catch (err) {
     console.error(err);
     console.error(workerLog.join('').slice(-4000));
@@ -137,7 +159,8 @@ async function main() {
     await emulator.close();
     if (fs.existsSync(backup)) fs.renameSync(backup, builtDevVars);
   }
-  log(exitCode === 0 ? 'E2E PASS' : `E2E FAIL (exit ${exitCode})`);
+  if (serveOnly) log(exitCode === 0 ? 'Đã dừng máy chủ e2e.' : `Worker dừng bất thường (exit ${exitCode})`);
+  else log(exitCode === 0 ? 'E2E PASS' : `E2E FAIL (exit ${exitCode})`);
   if (exitCode !== 0 && workerLog.length) {
     console.log('--- wrangler log (cuối) ---');
     console.log(workerLog.join('').slice(-3000));

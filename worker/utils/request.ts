@@ -3,19 +3,41 @@ import { toFieldErrors } from '../../shared/schemas';
 import type { RequestContext } from '../types';
 import { ApiError } from './http';
 
-/** Đọc body JSON với giới hạn dung lượng; chỉ chấp nhận Content-Type application/json. */
+function tooLarge(): ApiError {
+  return new ApiError(413, 'PAYLOAD_TOO_LARGE', 'Dữ liệu gửi lên quá lớn.');
+}
+
+/**
+ * Đọc body JSON với giới hạn dung lượng; chỉ chấp nhận Content-Type application/json.
+ * Đọc theo luồng và dừng ngay khi vượt giới hạn (kể cả khi client không gửi Content-Length).
+ */
 export async function readJson(request: Request, maxBytes: number): Promise<unknown> {
   const contentType = request.headers.get('Content-Type') ?? '';
   if (!/^application\/json\b/i.test(contentType)) {
     throw new ApiError(400, 'BAD_REQUEST', 'Content-Type phải là application/json.');
   }
   const declared = Number(request.headers.get('Content-Length') ?? '0');
-  if (declared > maxBytes) {
-    throw new ApiError(413, 'PAYLOAD_TOO_LARGE', 'Dữ liệu gửi lên quá lớn.');
+  if (declared > maxBytes) throw tooLarge();
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  if (request.body) {
+    const reader = request.body.getReader();
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      total += value.byteLength;
+      if (total > maxBytes) {
+        await reader.cancel().catch(() => {});
+        throw tooLarge();
+      }
+      chunks.push(value);
+    }
   }
-  const buffer = await request.arrayBuffer();
-  if (buffer.byteLength > maxBytes) {
-    throw new ApiError(413, 'PAYLOAD_TOO_LARGE', 'Dữ liệu gửi lên quá lớn.');
+  const buffer = new Uint8Array(total);
+  let offset = 0;
+  for (const chunk of chunks) {
+    buffer.set(chunk, offset);
+    offset += chunk.byteLength;
   }
   try {
     return JSON.parse(new TextDecoder().decode(buffer));

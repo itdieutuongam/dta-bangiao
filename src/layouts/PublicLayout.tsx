@@ -2,6 +2,9 @@ import { ShieldCheck } from 'lucide-react';
 import { Link, Outlet, useLocation } from 'react-router';
 import { BrandMark } from '../components/Brand';
 
+/** Năm hiện tại cho dòng bản quyền — tính một lần khi tải trang (không gọi hàm "không thuần" trong lúc render). */
+const CURRENT_YEAR = new Date().getFullYear();
+
 export function PublicLayout() {
   const location = useLocation();
   const isConfirmPage = location.pathname.startsWith('/xac-nhan/');
@@ -19,7 +22,7 @@ export function PublicLayout() {
           {isConfirmPage ? (
             <BrandMark compact />
           ) : (
-            <Link to="/" className="min-w-0 rounded-lg" aria-label="Diệu Tướng Am – Tạo biên bản bàn giao">
+            <Link to="/" className="min-w-0 rounded-lg" aria-label="Diệu Tướng Am – Trang chủ hệ thống bàn giao nội bộ">
               <BrandMark />
             </Link>
           )}
@@ -40,7 +43,7 @@ export function PublicLayout() {
         <Outlet />
       </main>
       <footer className="px-4 py-5 text-center text-xs text-stone-500">
-        © {new Date().getFullYear()} Diệu Tướng Am · Hệ thống bàn giao nội bộ
+        © {CURRENT_YEAR} Diệu Tướng Am · Hệ thống bàn giao nội bộ
       </footer>
     </div>
   );

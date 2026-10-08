@@ -1,0 +1,65 @@
+# Kiểm tra mỗi lần push / pull request. Không cần secret: Apps Script được giả lập, deploy chỉ chạy --dry-run.
+# Lưu ý: nếu Cloudflare Workers Builds tự deploy khi push lên main, đặt Build command = "npm run verify && npm run build"
+# trong Cloudflare để bản lỗi test không được deploy (xem docs/CLOUDFLARE_DEPLOY.md).
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    name: Typecheck · Lint · Test · Build (Node ${{ matrix.node }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      matrix:
+        # 24 = .node-version (Cloudflare Workers Builds, máy phát triển); 22 = bản thấp nhất trong package.json "engines".
+        node: ['24', '22']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm run lint
+      - run: npm test
+      - run: npm run build
+      - name: Kiểm tra gói deploy (không đăng nhập Cloudflare)
+        run: npx wrangler deploy --dry-run --outdir .wrangler/dry-run
+      - name: Bản gộp Apps Script
+        run: npm run gas:bundle
+
+  e2e:
+    name: E2E (workerd + Chrome)
+    needs: verify
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .node-version
+          cache: npm
+      - run: npm ci
+      - name: E2E (Worker build production + Apps Script giả lập + Chrome có sẵn trên runner)
+        run: npm run test:e2e
+        env:
+          E2E_BROWSER_PATH: /usr/bin/google-chrome
+      - name: Ảnh chụp màn hình khi lỗi
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-screenshots
+          path: .e2e/screenshots
+          retention-days: 7

@@ -13,7 +13,9 @@ export function Spinner({ label = 'Đang tải…', className }: { label?: strin
   );
 }
 
-export function Skeleton({ className }: { className?: string }) {
+/** Khung chờ. inline: dùng `span` (đặt được trong `span` / `button` — `div` ở đó là HTML sai cấu trúc). */
+export function Skeleton({ className, inline = false }: { className?: string; inline?: boolean }) {
+  if (inline) return <span className={cn('inline-block animate-pulse rounded-md bg-stone-200/70', className)} aria-hidden="true" />;
   return <div className={cn('animate-pulse rounded-md bg-stone-200/70', className)} aria-hidden="true" />;
 }
 

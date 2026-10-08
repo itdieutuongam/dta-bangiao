@@ -1,5 +1,6 @@
-import { APP_ID } from '../../shared/constants';
+import { APP_ID, APP_VERSION } from '../../shared/constants';
 import type { HealthData } from '../../shared/types';
+import { readAdminConfig } from '../auth/adminUsers';
 import { callGas } from '../services/gas';
 import { getCached } from '../services/memoryCache';
 import { enforceRateLimit } from '../services/rateLimit';
@@ -10,20 +11,25 @@ import { logError } from '../utils/log';
 interface GasHealth {
   database: string;
   drive: string;
+  version?: string;
+  schemaReady?: boolean;
 }
 
-/** GET /api/health — kiểm tra Worker, Apps Script, Google Sheet, Drive. Không trả về bất kỳ secret nào. */
+/**
+ * GET /api/health — kiểm tra Worker, Apps Script, Google Sheet, Drive. Công khai (giám sát uptime) nên chỉ trả trạng thái
+ * tổng quát — chi tiết cấu hình nằm ở trang Cài đặt của admin. Không trả về bất kỳ secret nào.
+ */
 export async function healthHandler(c: RequestContext): Promise<Response> {
   await enforceRateLimit(c, 'RL_PUBLIC', 'health');
   const env = c.env;
   const configured = {
     appsScript: Boolean(env.GAS_WEB_APP_URL?.trim() && env.GAS_SHARED_SECRET?.trim()),
     session: Boolean(env.SESSION_SECRET?.trim()),
-    admin: Boolean(env.ADMIN_PASSWORD?.trim()),
-    staffAccessCode: Boolean(env.STAFF_ACCESS_CODE?.trim()),
+    admin: readAdminConfig(env).error === null,
   };
   const data: HealthData = {
     app: APP_ID,
+    version: APP_VERSION,
     cloudflare: 'ok',
     appsScript: 'not_configured',
     database: 'unknown',

@@ -65,18 +65,25 @@ function safeFileName(name: string): string {
   return cleaned || 'file';
 }
 
+/**
+ * Trả file (PNG chữ ký / PDF / CSV). CSP "sandbox" + nosniff: kể cả khi nội dung bị tráo, trình duyệt không chạy
+ * script trên origin của ứng dụng. body: byte (có Content-Length) hoặc stream chuyển thẳng (xuất CSV lớn).
+ */
 export function fileResponse(
-  bytes: Bytes,
+  body: Bytes | ReadableStream<Uint8Array>,
   contentType: string,
   fileName: string,
   disposition: 'inline' | 'attachment',
+  extraHeaders: Record<string, string> = {},
 ): Response {
   const name = safeFileName(fileName);
   const h = withDefaults({
+    ...extraHeaders,
     'Content-Type': contentType,
-    'Content-Length': String(bytes.byteLength),
     'Content-Disposition': `${disposition}; filename="${name}"; filename*=UTF-8''${encodeURIComponent(name)}`,
     'Cache-Control': 'private, no-store',
+    'Content-Security-Policy': "default-src 'none'; img-src 'self' data:; sandbox",
   });
-  return new Response(bytes, { status: 200, headers: h });
+  if (body instanceof Uint8Array) h.set('Content-Length', String(body.byteLength));
+  return new Response(body, { status: 200, headers: h });
 }

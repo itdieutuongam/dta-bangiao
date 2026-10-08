@@ -1,7 +1,7 @@
 {
   "name": "dta-handover",
   "private": true,
-  "version": "1.0.0",
+  "version": "2.0.0",
   "description": "Hệ thống bàn giao nội bộ – Diệu Tướng Am (Cloudflare Workers + Google Apps Script + Google Sheets/Drive)",
   "type": "module",
   "engines": {
@@ -12,9 +12,13 @@
     "build": "tsc -b && vite build",
     "preview": "vite preview",
     "typecheck": "tsc -b",
-    "deploy": "npm run build && wrangler deploy",
+    "lint": "oxlint --deny-warnings src worker shared scripts tests gateway",
+    "verify": "npm run typecheck && npm run lint && npm test",
+    "deploy": "npm run verify && npm run build && wrangler deploy",
+    "deploy:dry-run": "npm run verify && npm run build && wrangler deploy --dry-run",
     "test": "vitest run",
     "test:e2e": "node scripts/e2e/run-e2e.mjs",
+    "local": "node scripts/local/server.mjs",
     "gas:emulator": "node scripts/gas-emulator/server.mjs",
     "gas:bundle": "node scripts/build-gas-bundle.mjs",
     "cf-typegen": "wrangler types --include-env=false"
@@ -34,6 +38,7 @@
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",
     "@vitejs/plugin-react": "^6.1.1",
+    "oxlint": "^1.87.0",
     "playwright-core": "^1.63.0",
     "tailwindcss": "^4.3.3",
     "typescript": "^7.0.2",

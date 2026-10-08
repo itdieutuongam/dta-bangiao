@@ -1,6 +1,6 @@
 import { Plus } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react';
-import { CONDITION_SUGGESTIONS, LIMITS, WORK_STATUS_SUGGESTIONS, type ItemFieldKey } from '../../../shared/constants';
+import { CONDITION_SUGGESTIONS, LIMITS, WORK_STATUS_SUGGESTIONS, type HandoverType, type ItemFieldKey } from '../../../shared/constants';
 import type { Category, Employee, HandoverInput } from '../../../shared/types';
 import { useUnsavedChangesWarning } from '../../hooks/usePageMeta';
 import { ApiClientError, errorMessage } from '../../services/api';
@@ -9,6 +9,7 @@ import { Button } from '../ui/Button';
 import { describedBy, Field } from '../ui/Field';
 import { InlineAlert } from '../ui/States';
 import {
+  categoriesForType,
   countErrors,
   emptyFormItem,
   errorElementIds,
@@ -23,6 +24,8 @@ import {
 import { ItemEditor } from './ItemEditor';
 
 interface HandoverFormProps {
+  /** Loại phiếu (không gồm Văn phòng phẩm — dùng VppHandoverForm). Chỉ hiện loại nội dung thuộc loại phiếu này. */
+  handoverType: Exclude<HandoverType, 'OFFICE_SUPPLY'>;
   employees: Employee[];
   categories: Category[];
   initialValues?: HandoverFormValues;
@@ -30,17 +33,22 @@ interface HandoverFormProps {
   submitIcon?: ReactNode;
   onSubmit: (input: HandoverInput) => Promise<void>;
   onCancel?: () => void;
+  /** Thao tác đi kèm thông báo lỗi khi lưu (vd. link mở phiếu đã tạo khi REQUEST_REUSED); clear: ẩn thông báo. */
+  submitErrorActions?: (error: unknown, clear: () => void) => ReactNode;
 }
 
 export function HandoverForm({
+  handoverType,
   employees,
-  categories,
+  categories: allCategories,
   initialValues,
   submitLabel,
   submitIcon,
   onSubmit,
   onCancel,
+  submitErrorActions,
 }: HandoverFormProps) {
+  const categories = useMemo(() => categoriesForType(allCategories, handoverType), [allCategories, handoverType]);
   const activeCategories = useMemo(() => categories.filter((c) => c.active), [categories]);
   const defaultCategory = activeCategories[0]?.code ?? categories[0]?.code ?? 'KHAC';
 
@@ -56,6 +64,7 @@ export function HandoverForm({
   );
   const [errors, setErrors] = useState<FormErrors>(NO_ERRORS);
   const [submitError, setSubmitError] = useState<string | null>(null);
+  const [submitFailure, setSubmitFailure] = useState<unknown>(null);
   const [submitting, setSubmitting] = useState(false);
   const [dirty, setDirty] = useState(false);
   const pendingFocus = useRef<string | null>(null);
@@ -157,7 +166,7 @@ export function HandoverForm({
     event.preventDefault();
     if (submitting) return;
     setSubmitError(null);
-    const { input, errors: nextErrors } = validateHandoverForm(values, categories);
+    const { input, errors: nextErrors } = validateHandoverForm(values, categories, handoverType);
     if (!input) {
       setErrors(nextErrors);
       focusFirstError(nextErrors);
@@ -175,6 +184,7 @@ export function HandoverForm({
         focusFirstError(mapped);
       }
       setSubmitError(errorMessage(err, 'Không thể lưu biên bản. Vui lòng thử lại.'));
+      setSubmitFailure(err);
     } finally {
       setSubmitting(false);
     }
@@ -248,8 +258,15 @@ export function HandoverForm({
           <span className="sr-only">({values.items.length} mục)</span>
         </h2>
         <p className="mt-1 text-sm text-stone-500">
-          Một biên bản có thể gồm nhiều nội dung: thiết bị, thẻ, tài khoản, công việc, hồ sơ…
+          {handoverType === 'OTHER'
+            ? 'Một biên bản có thể gồm nhiều nội dung: thiết bị, thẻ, tài khoản, công việc, hồ sơ…'
+            : 'Một biên bản có thể gồm nhiều nội dung cùng loại.'}
         </p>
+        {activeCategories.length === 0 && (
+          <InlineAlert tone="warning" className="mt-3">
+            Chưa có loại nội dung nào cho loại phiếu này. Thêm dòng vào sheet LOAI_BAN_GIAO (cột handover_type) rồi bấm “Làm mới dữ liệu”.
+          </InlineAlert>
+        )}
         {errors.general.items && (
           <InlineAlert className="mt-3">{errors.general.items}</InlineAlert>
         )}
@@ -327,6 +344,7 @@ export function HandoverForm({
         {submitError && (
           <InlineAlert>
             <span id="form-submit-error">{submitError}</span>
+            {submitErrorActions?.(submitFailure, () => setSubmitError(null))}
           </InlineAlert>
         )}
         <div className="flex flex-col-reverse gap-2 sm:flex-row sm:items-center sm:justify-end">

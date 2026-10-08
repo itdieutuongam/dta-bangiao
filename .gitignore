@@ -33,6 +33,9 @@ test-results/
 playwright-report/
 .e2e/
 
+# Tài liệu scan / PDF đặt nhầm ở thư mục gốc (có thể chứa dữ liệu nhạy cảm) — không bao giờ commit
+/*.pdf
+
 # Editor / OS
 .DS_Store
 Thumbs.db

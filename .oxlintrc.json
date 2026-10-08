@@ -1,0 +1,43 @@
+{
+  "$schema": "./node_modules/oxlint/configuration_schema.json",
+  // npm run lint — oxlint (typescript-eslint chưa hỗ trợ TypeScript 7). Lỗi đúng/sai: error; nghi vấn: warn.
+  "plugins": ["typescript", "unicorn", "oxc", "react", "vitest"],
+  "categories": {
+    "correctness": "error",
+    "suspicious": "warn"
+  },
+  "env": {
+    "browser": true,
+    "node": true,
+    "es2024": true
+  },
+  "rules": {
+    // JSX transform mới — không cần import React.
+    "react/react-in-jsx-scope": "off",
+    "react-hooks/rules-of-hooks": "error",
+    "react-hooks/exhaustive-deps": "warn",
+    // Quy ước của dự án: trường nội bộ _row / _record (vị trí bản ghi Sheet), đường dẫn /__emulator, /__local.
+    "no-underscore-dangle": "off",
+    // Vitest cho phép expect(giá trị, "thông báo khi sai").
+    "vitest/valid-expect": ["error", { "maxArgs": 2 }],
+    // Luôn sort / reverse trên BẢN SAO; toSorted / toReversed chưa có trên iOS < 16 (điện thoại người nhận dùng để ký).
+    "unicorn/no-array-sort": "off",
+    "unicorn/no-array-reverse": "off",
+    // Hàm nhỏ khai báo cạnh nơi dùng (test, component) cho dễ đọc — không phải lỗi.
+    "unicorn/consistent-function-scoping": "off",
+    // Chủ ý: reset form khi mở hộp thoại / đổi dữ liệu; effect theo pathname để đóng menu, tải lại huy hiệu khi đổi trang.
+    "react/set-state-in-effect": "off",
+    "react/exhaustive-effect-dependencies": "off"
+  },
+  "overrides": [
+    {
+      "files": ["tests/e2e/**"],
+      "rules": {
+        // E2E: kiểm tra bằng locator.waitFor() (Playwright báo lỗi khi không thấy phần tử); nhánh riêng theo khổ màn hình.
+        "vitest/expect-expect": ["error", { "assertFunctionNames": ["expect", "**.waitFor", "screenshot"] }],
+        "vitest/no-conditional-expect": "off"
+      }
+    }
+  ],
+  "ignorePatterns": ["dist/**", "node_modules/**", ".wrangler/**", "coverage/**"]
+}

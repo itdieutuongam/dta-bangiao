@@ -17,7 +17,12 @@ GAS_WEB_APP_URL=
 #   node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
 GAS_SHARED_SECRET=
 
-# Mật khẩu đăng nhập trang quản trị /admin (nên >= 12 ký tự).
+# Tài khoản quản trị — chọn MỘT trong hai cách:
+# (1) Khuyến nghị: mỗi người một tài khoản (JSON 1 dòng, mật khẩu >= 12 ký tự, username a-z 0-9 . _ -).
+#     Nhật ký ghi đúng người tạo / sửa / hủy phiếu, duyệt đề xuất, nhập kho, kiểm kê.
+# ADMIN_USERS=[{"username":"thai","name":"Phạm Danh Thái","password":"doi-mat-khau-nay-123"}]
+ADMIN_USERS=
+# (2) Tương thích bản cũ: một mật khẩu dùng chung (chỉ dùng khi ADMIN_USERS trống).
 ADMIN_PASSWORD=
 
 # Khóa ký cookie phiên quản trị + sinh link xác nhận (>= 32 ký tự ngẫu nhiên).
@@ -31,6 +36,12 @@ SESSION_SECRET=
 # nên khi chạy local hãy giữ dòng này (để trống) để link trỏ về máy local.
 APP_BASE_URL=
 
-# (Tùy chọn) Mã truy cập nội bộ. Nếu đặt, trang tạo bàn giao và API danh sách
-# nhân viên yêu cầu nhập mã này trước khi dùng. Để trống = không yêu cầu.
+# (Khuyến nghị) Mã truy cập nội bộ cho trang đề xuất văn phòng phẩm /de-xuat-vpp.
+# Nếu đặt, nhân viên phải nhập mã này trước khi tra mã NV / gửi đề xuất. Để trống = không yêu cầu.
+# (Tạo phiếu bàn giao luôn yêu cầu đăng nhập quản trị — không phụ thuộc biến này.)
 STAFF_ACCESS_CODE=
+
+# (Khuyến nghị) Khóa niêm phong biên bản đã ký (>= 32 ký tự ngẫu nhiên). Worker gửi khóa dẫn xuất kèm request; Apps Script dùng
+# để niêm phong toàn bộ biên bản lúc ký (nội dung, ý kiến người nhận, thời điểm, chữ ký) — KHÔNG lưu ở Google, nên người sửa được
+# Google Sheet không tự tính lại được niêm phong. Lưu giữ cẩn thận, KHÔNG đổi sau khi đã dùng (niêm phong cũ sẽ báo không khớp).
+RECORD_SEAL_SECRET=

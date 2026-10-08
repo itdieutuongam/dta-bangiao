@@ -1,6 +1,6 @@
 /**
  * Employees.gs — danh sách nhân viên (sheet NHAN_VIEN) + loại bàn giao (sheet LOAI_BAN_GIAO)
- * + cấu hình hiển thị (sheet CAU_HINH). Có cache (CacheService) — làm mới bằng:
+ * + cấu hình hiển thị (sheet CAU_HINH) + phạm vi định mức VPP của phòng ban. Có cache (CacheService) — làm mới bằng:
  *   • sửa trực tiếp Sheet (onEdit tự xóa cache nếu script gắn với Sheet),
  *   • menu "DTA Handover → Làm mới cache", hàm refreshCaches(),
  *   • nút "Làm mới dữ liệu" trên trang quản trị,
@@ -9,26 +9,37 @@
 
 var CACHE_KEYS = {
   EMPLOYEES: 'employees:v1',
-  CATEGORIES: 'categories:v1',
-  SETTINGS: 'settings:v1'
+  CATEGORIES: 'categories:v2',
+  SETTINGS: 'settings:v1',
+  VPP_CATALOG: 'vpp-catalog:v1'
 };
 
 function invalidateCaches_() {
   cacheRemove_(CACHE_KEYS.EMPLOYEES);
   cacheRemove_(CACHE_KEYS.CATEGORIES);
   cacheRemove_(CACHE_KEYS.SETTINGS);
+  cacheRemove_(CACHE_KEYS.VPP_CATALOG);
 }
 
 // ============================================================================
 // Nhân viên
 // ============================================================================
 
-function apiListEmployees_() {
+/** Danh sách nhân viên cho trang quản trị (không công khai). includeInactive = cả nhân viên đã nghỉ. */
+function apiAdminListEmployees_(data) {
+  var includeInactive = data && data.includeInactive === true;
+  var scopes = includeInactive ? listNormScopes_() : null;
   return {
     employees: getEmployees_()
-      .filter(function (e) { return e.status === 'ACTIVE'; })
+      .filter(function (e) { return includeInactive || e.status === 'ACTIVE'; })
       .map(function (e) {
-        return { employeeId: e.employeeId, fullName: e.fullName, department: e.department, position: e.position, email: e.email };
+        var out = { employeeId: e.employeeId, fullName: e.fullName, department: e.department, position: e.position, email: e.email };
+        if (includeInactive) {
+          out.status = e.status;
+          var scope = resolveDepartmentScope_(e.department, scopes);
+          out.vppScope = scope ? { scopeId: scope.scopeId, scopeName: scope.scopeName, source: scope.source } : null;
+        }
+        return out;
       })
   };
 }
@@ -93,7 +104,8 @@ function findEmployeeById_(id) {
 // Loại bàn giao
 // ============================================================================
 
-function apiListCategories_() {
+/** Loại đang dùng (trang tạo / sửa phiếu của admin). */
+function apiAdminListCategories_() {
   return { categories: getCategories_().filter(function (c) { return c.active; }) };
 }
 
@@ -141,15 +153,24 @@ function parseFormFields_(spec) {
   return out;
 }
 
+/** Loại phiếu của một loại nội dung: cột handover_type → mặc định theo mã → OTHER. */
+function categoryHandoverType_(code, value) {
+  var v = String(value || '').trim().toUpperCase();
+  if (HANDOVER_TYPES[v]) return v;
+  return DEFAULT_CATEGORY_TYPES[code] || 'OTHER';
+}
+
 function categoryFromRow_(r) {
   var status = String(r.status || '').trim().toUpperCase();
+  var code = String(r.code || '').trim().toUpperCase();
   return {
-    code: String(r.code || '').trim().toUpperCase(),
+    code: code,
     name: truncate_(cleanLine_(r.name), 80),
     fields: parseFormFields_(r.form_fields),
     hint: truncate_(cleanText_(r.hint), 500),
     sortOrder: parseInt(r.sort_order, 10) || 999,
-    active: status === '' || status === 'ACTIVE'
+    active: status === '' || status === 'ACTIVE',
+    handoverType: categoryHandoverType_(code, r.handover_type)
   };
 }
 
@@ -202,4 +223,77 @@ function getSettings_() {
   }
   cachePutJson_(CACHE_KEYS.SETTINGS, settings, APP.CACHE_TTL_SECONDS);
   return settings;
+}
+
+/** Ghi / cập nhật một khóa trong CAU_HINH (theo khóa, không theo số dòng). */
+function upsertSetting_(key, value, description) {
+  var now = nowIso_();
+  var found = findRow_(SHEETS.SETTINGS, 'key', key);
+  if (found) {
+    updateRowFields_(SHEETS.SETTINGS, found.rowIndex, found.record, { value: value, description: description, updated_at: now });
+  } else {
+    appendObjects_(SHEETS.SETTINGS, [{ key: key, value: value, description: description, updated_at: now }]);
+  }
+  cacheRemove_(CACHE_KEYS.SETTINGS);
+}
+
+// ============================================================================
+// Phạm vi định mức VPP của phòng ban
+//   • Phạm vi (scope) = nhóm định mức trong VPP_DINH_MUC (ví dụ KINH_DOANH "PHÒNG KINH DOANH", VAN_PHONG "VĂN PHÒNG").
+//   • Phòng ban của nhân viên → phạm vi:
+//       1) khóa CAU_HINH "VPP_SCOPE:<PHONG_BAN>" = <scope_id> (admin gắn trên trang Định mức; "NONE" = không áp dụng);
+//       2) nếu chưa gắn: tên phòng ban trùng khớp tên phạm vi (bỏ dấu, bỏ chữ "phòng" ở đầu).
+//     Không tự đoán theo tên gần giống — phòng ban chưa khớp hiện trong "Dữ liệu cần kiểm tra".
+// ============================================================================
+
+var SCOPE_SETTING_PREFIX = 'VPP_SCOPE:';
+
+function scopeSettingKey_(department) {
+  return SCOPE_SETTING_PREFIX + slugKey_(department, 80);
+}
+
+/** Phòng ban đã được quản trị viên chọn "Không áp dụng định mức" (khác với "chưa gắn"). */
+function isDepartmentExcludedFromNorms_(department, settings) {
+  var dept = cleanLine_(department);
+  if (!dept) return false;
+  return String((settings || getSettings_())[scopeSettingKey_(dept)] || '').trim().toUpperCase() === 'NONE';
+}
+
+/** Bỏ chữ "phòng" ở đầu để "PHÒNG KINH DOANH" khớp "Kinh doanh". */
+function scopeMatchKey_(value) {
+  return matchKey_(value).replace(/^phong /, '');
+}
+
+/** Các phạm vi định mức đang có (từ VPP_DINH_MUC). Trả về [] nếu chưa có sheet. */
+function listNormScopes_() {
+  var map = {};
+  try {
+    readTable_(SHEETS.VPP_NORMS).rows.forEach(function (r) {
+      var id = String(r.scope_id || '').trim().toUpperCase();
+      if (!id || map[id]) return;
+      map[id] = { scopeId: id, scopeName: cleanLine_(r.scope_name) || id };
+    });
+  } catch (e) {
+    if (!e.appCode) throw e;
+  }
+  return Object.keys(map).sort().map(function (k) { return map[k]; });
+}
+
+function resolveDepartmentScope_(department, scopes) {
+  var dept = cleanLine_(department);
+  if (!dept) return null;
+  scopes = scopes || listNormScopes_();
+  var byId = {};
+  scopes.forEach(function (s) { byId[s.scopeId] = s; });
+  var mapped = String(getSettings_()[scopeSettingKey_(dept)] || '').trim().toUpperCase();
+  if (mapped === 'NONE') return null;
+  if (mapped && byId[mapped]) return { scopeId: mapped, scopeName: byId[mapped].scopeName, source: 'MAPPING' };
+  var key = scopeMatchKey_(dept);
+  for (var i = 0; i < scopes.length; i++) {
+    var s = scopes[i];
+    if (key && (key === scopeMatchKey_(s.scopeName) || key === scopeMatchKey_(s.scopeId.replace(/_/g, ' ')))) {
+      return { scopeId: s.scopeId, scopeName: s.scopeName, source: 'AUTO' };
+    }
+  }
+  return null;
 }

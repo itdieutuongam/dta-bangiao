@@ -20,4 +20,9 @@ export default defineConfig({
     target: 'es2022',
     chunkSizeWarningLimit: 700,
   },
+  environments: {
+    // Source map CHỈ cho Worker: wrangler.jsonc bật upload_source_maps → stack trace đọc được trong Workers Logs.
+    // Không bật cho client — tránh phát hành mã nguồn frontend qua static assets.
+    dta_bangiao: { build: { sourcemap: true } },
+  },
 });

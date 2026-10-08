@@ -23,7 +23,7 @@ export async function getCached<T>(key: string, ttlMs: number, loader: () => Pro
 }
 
 export function invalidateCached(prefix = ''): void {
-  for (const key of [...store.keys()]) {
+  for (const key of store.keys()) {
     if (key.startsWith(prefix)) store.delete(key);
   }
 }

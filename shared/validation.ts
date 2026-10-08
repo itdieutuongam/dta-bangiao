@@ -46,6 +46,7 @@ export function emptyItem(category: string): HandoverItemInput {
     serialNumber: '',
     model: '',
     quantity: 1,
+    unit: '',
     condition: '',
     description: '',
     workStatus: '',

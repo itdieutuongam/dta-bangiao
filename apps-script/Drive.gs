@@ -4,10 +4,13 @@
  *   DTA_HANDOVER/
  *     signatures/YYYY/MM/BG-YYYYMMDD-XXXX-signature.png
  *     pdf/YYYY/MM/BG-YYYYMMDD-XXXX.pdf
- *     backups/            (bản sao Spreadsheet do backupNow() tạo)
+ *     pdf-archive/YYYY/MM/   (PDF cũ khi "Tạo lại PDF" — giữ lại, không xóa)
+ *     backups/            (bản sao Spreadsheet do backupNow() / nâng cấp tạo)
  *
  * File mặc định PRIVATE (chỉ chủ sở hữu script). Hệ thống KHÔNG chia sẻ "Anyone with the link";
  * người dùng tải file qua Worker (API có kiểm tra quyền).
+ * Chỉ trả về file nằm trong thư mục DTA_HANDOVER và đúng định dạng (PNG / PDF) — kể cả khi ID file trong Sheet
+ * bị sửa tay trỏ tới file khác.
  * Shared Drive: DriveApp hoạt động với thư mục Shared Drive; nếu cần có thể bật Advanced Drive
  * Service (Drive API v3) và đặt Script Property USE_ADVANCED_DRIVE = true.
  */
@@ -36,7 +39,7 @@ function getMonthFolder_(kind, isoDate) {
   var iso = String(isoDate || nowIso_());
   var year = iso.slice(0, 4);
   var month = iso.slice(5, 7);
-  var key = 'FOLDER_' + kind.toUpperCase() + '_' + year + '_' + month;
+  var key = 'FOLDER_' + kind.toUpperCase().replace(/[^A-Z0-9]/g, '_') + '_' + year + '_' + month;
   var cachedId = getProp_(key);
   if (cachedId) {
     try {
@@ -102,27 +105,68 @@ function saveSignatureFile_(code, bytes, isoNow) {
   }
 }
 
-/** Đọc file Drive → { fileName, mimeType, base64 } để Worker trả về trình duyệt. */
-function readDriveFile_(fileId, fallbackName) {
-  try {
-    var file = DriveApp.getFileById(fileId);
-    var blob = file.getBlob();
-    return {
-      fileName: file.getName() || fallbackName,
-      mimeType: blob.getContentType() || 'application/octet-stream',
-      base64: Utilities.base64Encode(blob.getBytes())
-    };
-  } catch (e) {
-    logError_('readDriveFile_', e);
-    throw appError_('DRIVE_ERROR', 'Không đọc được file trên Google Drive.');
+/** File có nằm (trực tiếp hoặc gián tiếp, tối đa 6 cấp) trong thư mục gốc DTA_HANDOVER không. */
+function isInsideRootFolder_(file) {
+  var rootId = getProp_(PROP.DRIVE_FOLDER_ID);
+  if (!rootId) return false;
+  var queue = [file];
+  for (var depth = 0; depth < 6 && queue.length; depth++) {
+    var next = [];
+    for (var i = 0; i < queue.length; i++) {
+      var parents = queue[i].getParents();
+      while (parents.hasNext()) {
+        var p = parents.next();
+        if (p.getId() === rootId) return true;
+        next.push(p);
+      }
+    }
+    queue = next;
   }
+  return false;
 }
 
-function loadImageDataUri_(fileId) {
-  if (!fileId) return '';
+/** Đọc file Drive hợp lệ của hệ thống (đúng thư mục + đúng định dạng). */
+function getSystemFile_(fileId, expectedMime) {
+  var file;
   try {
-    var blob = DriveApp.getFileById(fileId).getBlob();
-    return 'data:' + (blob.getContentType() || 'image/png') + ';base64,' + Utilities.base64Encode(blob.getBytes());
+    file = DriveApp.getFileById(fileId);
+  } catch (e) {
+    logError_('getSystemFile_', e);
+    throw appError_('DRIVE_ERROR', 'Không đọc được file trên Google Drive.');
+  }
+  var blob = file.getBlob();
+  var mime = String(blob.getContentType() || '').toLowerCase();
+  if ((expectedMime && mime !== expectedMime) || !isInsideRootFolder_(file)) {
+    logError_('getSystemFile_.rejected', appError_('DRIVE_ERROR', 'File không thuộc hệ thống: ' + fileId + ' (' + mime + ')'));
+    throw appError_('DRIVE_ERROR', 'File trên Google Drive không hợp lệ (sai định dạng hoặc không thuộc thư mục hệ thống).');
+  }
+  return { file: file, blob: blob };
+}
+
+/** Đọc file Drive → { fileName, mimeType, base64 } để Worker trả về trình duyệt. */
+function readDriveFile_(fileId, fallbackName, expectedMime) {
+  var got = getSystemFile_(fileId, expectedMime);
+  return {
+    fileName: got.file.getName() || fallbackName,
+    mimeType: expectedMime || got.blob.getContentType() || 'application/octet-stream',
+    base64: Utilities.base64Encode(got.blob.getBytes())
+  };
+}
+
+/** Ảnh dạng data URI để nhúng vào PDF. Chữ ký: chỉ PNG trong thư mục hệ thống; logo: PNG/JPEG bất kỳ admin chọn. */
+function loadImageDataUri_(fileId, options) {
+  if (!fileId) return '';
+  options = options || {};
+  try {
+    var blob;
+    if (options.systemFile) {
+      blob = getSystemFile_(fileId, 'image/png').blob;
+    } else {
+      blob = DriveApp.getFileById(fileId).getBlob();
+    }
+    var type = String(blob.getContentType() || '').toLowerCase();
+    if (type !== 'image/png' && type !== 'image/jpeg') return '';
+    return 'data:' + type + ';base64,' + Utilities.base64Encode(blob.getBytes());
   } catch (e) {
     logError_('loadImageDataUri_', e);
     return '';
@@ -144,5 +188,16 @@ function trashFileQuietly_(fileId) {
     DriveApp.getFileById(fileId).setTrashed(true);
   } catch (e) {
     logError_('trashFileQuietly_', e);
+  }
+}
+
+/** Chuyển PDF cũ sang pdf-archive/YYYY/MM (giữ bằng chứng; không xóa). Lỗi → giữ nguyên chỗ cũ. */
+function archivePdfQuietly_(fileId) {
+  if (!fileId) return;
+  try {
+    var file = DriveApp.getFileById(fileId);
+    file.moveTo(getMonthFolder_('pdf-archive', nowIso_()));
+  } catch (e) {
+    logError_('archivePdfQuietly_', e);
   }
 }

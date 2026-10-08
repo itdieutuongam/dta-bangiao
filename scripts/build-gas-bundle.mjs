@@ -13,7 +13,22 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const ORDER = ['Config.gs', 'Utils.gs', 'Security.gs', 'Employees.gs', 'Drive.gs', 'Pdf.gs', 'Handovers.gs', 'Setup.gs', 'Code.gs'];
+const ORDER = [
+  'Config.gs',
+  'Utils.gs',
+  'Security.gs',
+  'Employees.gs',
+  'Drive.gs',
+  'Pdf.gs',
+  'Handovers.gs',
+  'Notify.gs',
+  'Vpp.gs',
+  'VppProposals.gs',
+  'VppSetup.gs',
+  'Export.gs',
+  'Setup.gs',
+  'Code.gs',
+];
 
 export function bundleAppsScript(sourceDir = path.join(ROOT, 'apps-script')) {
   const files = fs.readdirSync(sourceDir).filter((f) => f.endsWith('.gs'));

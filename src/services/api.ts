@@ -30,6 +30,13 @@ export function errorMessage(error: unknown, fallback = 'Đã có lỗi xảy ra
   return fallback;
 }
 
+const STALE_STATE_CODES = new Set(['INVALID_STATE', 'INVALID_STATUS_TRANSITION', 'CONFLICT', 'ALREADY_CONFIRMED']);
+
+/** Dữ liệu vừa bị thay đổi ở nơi khác (người khác vừa thao tác) → nên tải lại để thấy trạng thái hiện tại. */
+export function isStaleStateError(error: unknown): error is ApiClientError {
+  return error instanceof ApiClientError && STALE_STATE_CODES.has(error.code);
+}
+
 interface RequestOptions {
   method?: 'GET' | 'POST' | 'PUT';
   body?: unknown;
@@ -88,8 +95,11 @@ function fileNameFromDisposition(header: string | null): string | null {
   return plain?.[1] ?? null;
 }
 
-/** Tải file (PDF) qua API có kiểm tra quyền; báo lỗi thân thiện nếu thất bại. */
-export async function downloadFile(path: string, fallbackName: string): Promise<void> {
+/**
+ * Tải file (PDF / CSV) qua API có kiểm tra quyền; báo lỗi thân thiện nếu thất bại.
+ * Trả về header của phản hồi (ví dụ X-Export-Truncated khi xuất CSV bị cắt bớt).
+ */
+export async function downloadFile(path: string, fallbackName: string): Promise<Headers> {
   let response: Response;
   try {
     response = await fetch(path, { credentials: 'same-origin' });
@@ -121,4 +131,5 @@ export async function downloadFile(path: string, fallbackName: string): Promise<
   anchor.click();
   anchor.remove();
   window.setTimeout(() => URL.revokeObjectURL(url), 15_000);
+  return response.headers;
 }

@@ -2,6 +2,8 @@
 // Apps Script có bản sao tương ứng trong apps-script/Config.gs — giữ đồng bộ khi sửa.
 
 export const APP_ID = 'dta-handover';
+/** Phiên bản ứng dụng — trùng APP.VERSION trong apps-script/Config.gs (trang Cài đặt cảnh báo nếu lệch). */
+export const APP_VERSION = '2.0.0';
 export const APP_TITLE = 'HỆ THỐNG BÀN GIAO NỘI BỘ – DIỆU TƯỚNG AM';
 export const ORG_NAME = 'DIỆU TƯỚNG AM';
 export const TIMEZONE = 'Asia/Ho_Chi_Minh';
@@ -23,12 +25,38 @@ export function isEditableStatus(status: string): boolean {
   return (EDITABLE_STATUSES as readonly string[]).includes(status);
 }
 
+/** Loại phiếu bàn giao — bước đầu tiên khi admin tạo phiếu. */
+export const HANDOVER_TYPES = ['ASSET', 'OFFICE_SUPPLY', 'ACCOUNT', 'DOCUMENT', 'WORK', 'OTHER'] as const;
+export type HandoverType = (typeof HANDOVER_TYPES)[number];
+
+export const HANDOVER_TYPE_LABELS: Record<HandoverType, string> = {
+  ASSET: 'Thiết bị / tài sản',
+  OFFICE_SUPPLY: 'Văn phòng phẩm',
+  ACCOUNT: 'Tài khoản',
+  DOCUMENT: 'Hồ sơ',
+  WORK: 'Công việc',
+  OTHER: 'Khác',
+};
+
+export const HANDOVER_TYPE_HINTS: Record<HandoverType, string> = {
+  ASSET: 'Laptop, máy tính, điện thoại, thẻ, tài sản có mã / serial',
+  OFFICE_SUPPLY: 'Chọn sản phẩm từ kho — tự giữ chỗ và trừ tồn khi người nhận ký',
+  ACCOUNT: 'Tài khoản email, phần mềm, hệ thống (không ghi mật khẩu)',
+  DOCUMENT: 'Hồ sơ, giấy tờ, chứng từ, nơi lưu',
+  WORK: 'Công việc, dự án, tình trạng, hạn hoàn thành, tài liệu',
+  OTHER: 'Nội dung khác hoặc gộp nhiều loại trong một phiếu',
+};
+
+/** Loại nội dung dành riêng cho văn phòng phẩm (chỉ dùng trong phiếu OFFICE_SUPPLY). */
+export const VPP_CATEGORY_CODE = 'VAN_PHONG_PHAM';
+
 export const ITEM_FIELD_KEYS = [
   'itemName',
   'assetCode',
   'serialNumber',
   'model',
   'quantity',
+  'unit',
   'condition',
   'description',
   'workStatus',
@@ -47,6 +75,7 @@ export const ITEM_FIELD_META: Record<ItemFieldKey, { column: string; label: stri
   serialNumber: { column: 'serial_number', label: 'Serial', kind: 'text', max: 120 },
   model: { column: 'model', label: 'Model', kind: 'text', max: 120 },
   quantity: { column: 'quantity', label: 'Số lượng', kind: 'number', max: 100_000 },
+  unit: { column: 'unit', label: 'ĐVT', kind: 'text', max: 40 },
   condition: { column: 'condition', label: 'Tình trạng', kind: 'text', max: 120 },
   description: { column: 'description', label: 'Mô tả', kind: 'textarea', max: 2000 },
   workStatus: { column: 'work_status', label: 'Tình trạng công việc', kind: 'text', max: 500 },
@@ -64,6 +93,16 @@ export const LIMITS = {
   cancelReason: 500,
   maxItems: 50,
   maxQuantity: 100_000,
+  overNormReason: 500,
+  productName: 200,
+  productCode: 40,
+  productCategory: 80,
+  unit: 40,
+  maxPrice: 1_000_000_000,
+  proposalReason: 1000,
+  proposalItemText: 500,
+  stockReason: 500,
+  url: 500,
   /** Dung lượng tối đa ảnh chữ ký PNG (bytes) sau khi decode. */
   signatureMaxBytes: 300 * 1024,
   signatureMaxWidth: 1200,
@@ -95,10 +134,42 @@ export const ERROR_CODES = {
   CONFLICT: 'CONFLICT',
   ALREADY_CONFIRMED: 'ALREADY_CONFIRMED',
   INVALID_STATE: 'INVALID_STATE',
+  INVALID_STATUS_TRANSITION: 'INVALID_STATUS_TRANSITION',
   PAYLOAD_TOO_LARGE: 'PAYLOAD_TOO_LARGE',
   RATE_LIMITED: 'RATE_LIMITED',
   NOT_CONFIGURED: 'NOT_CONFIGURED',
   UPSTREAM_ERROR: 'UPSTREAM_ERROR',
   UPSTREAM_TIMEOUT: 'UPSTREAM_TIMEOUT',
   INTERNAL_ERROR: 'INTERNAL_ERROR',
+  EMPLOYEE_NOT_FOUND: 'EMPLOYEE_NOT_FOUND',
+  PRODUCT_NOT_FOUND: 'PRODUCT_NOT_FOUND',
+  INSUFFICIENT_STOCK: 'INSUFFICIENT_STOCK',
+  OUT_OF_STOCK: 'OUT_OF_STOCK',
+  LOW_STOCK: 'LOW_STOCK',
+  NORM_EXCEEDED: 'NORM_EXCEEDED',
+  INTEGRITY_ERROR: 'INTEGRITY_ERROR',
+  OTP_REQUIRED: 'OTP_REQUIRED',
+  OTP_INVALID: 'OTP_INVALID',
+  OTP_EXPIRED: 'OTP_EXPIRED',
+  OTP_LOCKED: 'OTP_LOCKED',
+  MAIL_ERROR: 'MAIL_ERROR',
 } as const;
+
+/** Độ dài mã xác nhận gửi qua email khi người nhận ký. */
+export const OTP_LENGTH = 6;
+
+/**
+ * Email thông báo cho quản trị viên tạm dừng khi hạn mức gửi trong ngày còn dưới mức này (dành cho mã OTP).
+ * Trùng APP.MAIL_RESERVE_FOR_OTP trong apps-script/Config.gs.
+ */
+export const MAIL_RESERVE_FOR_OTP = 20;
+
+/** Loại email (NOTIFY_STATUS.lastError.event) — hiển thị trên trang quản trị. */
+export const NOTIFY_EVENT_LABELS: Record<string, string> = {
+  OTP: 'mã xác nhận khi ký',
+  REVISION_REQUESTED: 'báo yêu cầu chỉnh sửa',
+  PROPOSAL_SUBMITTED: 'báo đề xuất mua mới',
+  STOCK_SYNC_FAILED: 'báo cần đối soát kho',
+  DAILY_DIGEST: 'email tổng hợp hằng ngày',
+  TEST: 'email gửi thử',
+};

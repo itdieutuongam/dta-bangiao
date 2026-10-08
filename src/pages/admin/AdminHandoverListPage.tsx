@@ -1,17 +1,17 @@
 import { ChevronLeft, ChevronRight, Filter, RotateCcw, Search } from 'lucide-react';
 import { useEffect, useState, type FormEvent } from 'react';
 import { Link, useSearchParams } from 'react-router';
-import { HANDOVER_STATUSES, STATUS_LABELS, type HandoverStatus } from '../../../shared/constants';
+import { HANDOVER_STATUSES, HANDOVER_TYPE_LABELS, HANDOVER_TYPES, STATUS_LABELS, type HandoverStatus } from '../../../shared/constants';
 import type { AdminListResponse, Category, HandoverStats } from '../../../shared/types';
+import { ExportCsvButton } from '../../components/ExportCsvButton';
 import { Button, ButtonLink } from '../../components/ui/Button';
 import { EmptyState, ErrorState, Skeleton } from '../../components/ui/States';
 import { StatusBadge } from '../../components/ui/StatusBadge';
 import { useAsync } from '../../hooks/useAsync';
 import { useDocumentTitle } from '../../hooks/usePageMeta';
 import { useAdmin } from '../../layouts/adminContext';
-import { adminListHandovers, type AdminFilters } from '../../services/adminApi';
+import { adminCategories, adminListHandovers, type AdminFilters } from '../../services/adminApi';
 import { isApiError } from '../../services/api';
-import { getCategories } from '../../services/handoverApi';
 import { cn } from '../../utils/cn';
 import { formatDateTime } from '../../utils/format';
 
@@ -22,6 +22,7 @@ const FILTER_KEYS = [
   'sender',
   'receiver',
   'department',
+  'handoverType',
   'category',
   'status',
   'from',
@@ -38,6 +39,14 @@ function readFilters(params: URLSearchParams): FilterValues {
   return out;
 }
 
+/** Bộ lọc + trang → tham số URL (trang 1 không ghi). */
+function searchFor(filters: Partial<FilterValues>, page: number): URLSearchParams {
+  const search = new URLSearchParams();
+  for (const key of FILTER_KEYS) if (filters[key]) search.set(key, filters[key]);
+  if (page > 1) search.set('page', String(page));
+  return search;
+}
+
 const STAT_CARDS: Array<{ key: keyof HandoverStats; label: string; status: HandoverStatus | ''; tone: string }> = [
   { key: 'total', label: 'Tổng số biên bản', status: '', tone: 'border-brand-200 text-brand-900' },
   { key: 'PENDING', label: STATUS_LABELS.PENDING, status: 'PENDING', tone: 'border-amber-200 text-amber-800' },
@@ -51,8 +60,8 @@ const STAT_CARDS: Array<{ key: keyof HandoverStats; label: string; status: Hando
   { key: 'CANCELLED', label: STATUS_LABELS.CANCELLED, status: 'CANCELLED', tone: 'border-stone-300 text-stone-700' },
 ];
 
-export default function AdminDashboardPage() {
-  useDocumentTitle('Quản trị biên bản');
+export default function AdminHandoverListPage() {
+  useDocumentTitle('Phiếu bàn giao');
   const { handleError } = useAdmin();
   const [params, setParams] = useSearchParams();
   const applied = readFilters(params);
@@ -64,22 +73,25 @@ export default function AdminDashboardPage() {
     return adminListHandovers(filters);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [query]);
-  const categories = useAsync(() => getCategories(), []);
+  const categories = useAsync(() => adminCategories(), []);
 
   useEffect(() => {
     if (list.status === 'error' && isApiError(list.error) && list.error.status === 401) handleError(list.error);
   }, [list.status, list.error, handleError]);
 
   function applyFilters(next: Partial<FilterValues>, nextPage = 1) {
-    const merged = { ...applied, ...next };
-    const search = new URLSearchParams();
-    for (const key of FILTER_KEYS) if (merged[key]) search.set(key, merged[key]);
-    if (nextPage > 1) search.set('page', String(nextPage));
-    setParams(search);
+    setParams(searchFor({ ...applied, ...next }, nextPage));
   }
 
   const data = list.data;
   const totalPages = data ? Math.max(1, Math.ceil(data.total / data.pageSize)) : 1;
+
+  // Trang vượt quá trang cuối (vừa hủy / lọc làm danh sách ngắn lại, bấm Back, link cũ ?page=…): về trang cuối thay vì
+  // hiện "Không có biên bản phù hợp" trong khi tiêu đề ghi "N biên bản" và không còn nút chuyển trang.
+  const lastPageSearch = data && data.items.length === 0 && data.total > 0 && page > totalPages ? searchFor(applied, totalPages).toString() : null;
+  useEffect(() => {
+    if (lastPageSearch !== null) setParams(new URLSearchParams(lastPageSearch), { replace: true });
+  }, [lastPageSearch, setParams]);
 
   return (
     <div className="mx-auto max-w-7xl space-y-5 px-4 py-6">
@@ -88,9 +100,12 @@ export default function AdminDashboardPage() {
           <h1 className="text-xl font-bold text-brand-900 sm:text-2xl">Biên bản bàn giao</h1>
           <p className="text-sm text-stone-600">Theo dõi toàn bộ lịch sử bàn giao, lọc và xem chi tiết.</p>
         </div>
-        <ButtonLink to="/" variant="primary">
-          + Tạo bàn giao
-        </ButtonLink>
+        <div className="flex flex-wrap items-center gap-2">
+          <ExportCsvButton dataset="handovers" filters={{ ...applied }} />
+          <ButtonLink to="/admin/ban-giao/tao-moi" variant="primary">
+            + Tạo phiếu
+          </ButtonLink>
+        </div>
       </div>
 
       <section aria-label="Thống kê" className="grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-5">
@@ -111,7 +126,7 @@ export default function AdminDashboardPage() {
             >
               <span className="block text-xs font-semibold tracking-wide uppercase opacity-80">{card.label}</span>
               <span className="mt-1 block text-2xl font-bold tabular-nums">
-                {data ? data.stats[card.key] : <Skeleton className="mt-1 h-7 w-12" />}
+                {data ? data.stats[card.key] : <Skeleton inline className="mt-1 h-7 w-12" />}
               </span>
             </button>
           );
@@ -198,6 +213,7 @@ function ListBody({
           <thead className="bg-stone-50 text-xs tracking-wide text-stone-500 uppercase">
             <tr>
               <th scope="col" className="px-4 py-3 font-semibold">Mã BG</th>
+              <th scope="col" className="px-4 py-3 font-semibold">Loại</th>
               <th scope="col" className="px-4 py-3 font-semibold">Người giao</th>
               <th scope="col" className="px-4 py-3 font-semibold">Người nhận</th>
               <th scope="col" className="px-4 py-3 font-semibold">Phòng ban</th>
@@ -214,6 +230,7 @@ function ListBody({
                     {h.code}
                   </Link>
                 </td>
+                <td className="px-4 py-3 text-xs whitespace-nowrap text-stone-700">{HANDOVER_TYPE_LABELS[h.handoverType] ?? h.handoverType}</td>
                 <td className="px-4 py-3">
                   <span className="block font-medium text-stone-900">{h.senderName}</span>
                   {h.senderEmployeeId && <span className="text-xs text-stone-500">{h.senderEmployeeId}</span>}
@@ -250,7 +267,9 @@ function ListBody({
                 <span className="font-medium">{h.receiverName}</span>
               </p>
               <p className="mt-0.5 text-xs text-stone-500">
-                {[h.receiverDepartment, formatDateTime(h.createdAt), `${h.itemCount} nội dung`].filter(Boolean).join(' · ')}
+                {[HANDOVER_TYPE_LABELS[h.handoverType], h.receiverDepartment, formatDateTime(h.createdAt), `${h.itemCount} nội dung`]
+                  .filter(Boolean)
+                  .join(' · ')}
               </p>
             </Link>
           </li>
@@ -353,8 +372,26 @@ function FilterPanel({
             </select>
           </div>
           <div className="flex min-w-0 flex-col gap-1">
+            <label htmlFor="filter-handoverType" className="text-xs font-medium text-stone-600">
+              Loại phiếu
+            </label>
+            <select
+              id="filter-handoverType"
+              className="field-input py-1.5"
+              value={values.handoverType}
+              onChange={(e) => set('handoverType', e.target.value)}
+            >
+              <option value="">Tất cả</option>
+              {HANDOVER_TYPES.map((t) => (
+                <option key={t} value={t}>
+                  {HANDOVER_TYPE_LABELS[t]}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div className="flex min-w-0 flex-col gap-1">
             <label htmlFor="filter-category" className="text-xs font-medium text-stone-600">
-              Loại bàn giao
+              Loại nội dung
             </label>
             <select
               id="filter-category"

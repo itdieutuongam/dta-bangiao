@@ -48,6 +48,13 @@ function todayKey_() {
   return Utilities.formatDate(new Date(), APP.TIMEZONE, 'yyyyMMdd');
 }
 
+/** "YYYY-MM" (giờ Việt Nam) của một mốc ISO; trống → tháng hiện tại. */
+function monthKey_(iso) {
+  var m = /^(\d{4})-(\d{2})/.exec(String(iso || ''));
+  if (m) return m[1] + '-' + m[2];
+  return Utilities.formatDate(new Date(), APP.TIMEZONE, 'yyyy-MM');
+}
+
 /** ISO → "DD/MM/YYYY HH:mm" theo giờ Việt Nam. */
 function formatDisplayDateTime_(iso) {
   if (!iso) return '';
@@ -91,9 +98,16 @@ function toCell_(value) {
   return s;
 }
 
+/**
+ * Bỏ ký tự điều khiển (giữ xuống dòng / tab), ký tự điều khiển C1, ký tự định hướng chữ (bidi: override / isolate / mark, kể cả
+ * Arabic Letter Mark U+061C) và ký tự vô hình (zero-width, soft hyphen, combining grapheme joiner, ký tự đệm Hangul, ký tự "tag"
+ * U+E0000–E007F) — các ký tự này có thể dùng để giả mạo cách hiển thị tên / nội dung. Khớp stripControlChars (shared/text.ts).
+ */
 function stripControl_(value) {
   // eslint-disable-next-line no-control-regex
-  return String(value === null || value === undefined ? '' : value).replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g, '');
+  return String(value === null || value === undefined ? '' : value)
+    .replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F-\u009F\u00AD\u034F\u061C\u115F\u1160\u17B4\u17B5\u180E\u200B-\u200F\u202A-\u202E\u2060-\u2064\u2066-\u2069\u3164\uFEFF\uFFA0]/g, '')
+    .replace(/\uDB40[\uDC00-\uDC7F]/g, '');
 }
 
 /** Một dòng: bỏ ký tự điều khiển, gộp khoảng trắng, trim. Không cắt độ dài. */
@@ -115,7 +129,7 @@ function truncate_(value, max) {
 function normalizeText_(value) {
   var s = String(value === null || value === undefined ? '' : value).toLowerCase();
   if (typeof s.normalize === 'function') {
-    s = s.normalize('NFD').replace(/[̀-ͯ]/g, '');
+    s = s.normalize('NFD').replace(/[\u0300-\u036F]/g, '');
   }
   // Dự phòng khi runtime không hỗ trợ Unicode normalization.
   s = s
@@ -127,6 +141,26 @@ function normalizeText_(value) {
     .replace(/[ỳýỵỷỹ]/g, 'y')
     .replace(/đ/g, 'd');
   return s.replace(/\s+/g, ' ').trim();
+}
+
+/** Khóa so khớp: bỏ dấu, chỉ giữ chữ + số, phân tách bằng 1 khoảng trắng ("Bút bi 027, xanh" → "but bi 027 xanh"). */
+function matchKey_(value) {
+  return normalizeText_(value).replace(/[^a-z0-9]+/g, ' ').trim();
+}
+
+/**
+ * Khóa so khớp tên GIỮ DẤU tiếng Việt — chỉ bỏ khác biệt hoa / thường, khoảng trắng và dạng Unicode (NFC / NFD):
+ * "Kéo" ≠ "Kẹo" ≠ "Keo". Dùng khi tự gắn tên do người dùng gõ vào sản phẩm có sẵn (không được gắn nhầm).
+ */
+function exactNameKey_(value) {
+  var s = String(value === null || value === undefined ? '' : value);
+  if (typeof s.normalize === 'function') s = s.normalize('NFC');
+  return s.toLowerCase().replace(/\s+/g, ' ').trim();
+}
+
+/** Mã định danh dạng A-Z0-9_ từ một tên ("Phòng Kinh doanh" → "PHONG_KINH_DOANH"). */
+function slugKey_(value, max) {
+  return matchKey_(value).toUpperCase().replace(/ /g, '_').slice(0, max || 60);
 }
 
 function compareVi_(a, b) {
@@ -170,6 +204,16 @@ function uuid_() {
   return Utilities.getUuid().toLowerCase();
 }
 
+/**
+ * ID dạng UUID suy ra cố định từ một chuỗi (SHA-256, đặt bit phiên bản 5 / variant RFC 4122): cùng chuỗi → cùng ID.
+ * Dùng cho thao tác nhiều bước có mã thao tác của trình duyệt — gửi lại sau lỗi giữa chừng thì nhận ra dòng đã ghi, không tạo trùng.
+ */
+function uuidFrom_(seed) {
+  var h = sha256Hex_('dta-id:' + seed);
+  return h.slice(0, 8) + '-' + h.slice(8, 12) + '-5' + h.slice(13, 16) + '-' +
+    ((parseInt(h.charAt(16), 16) & 3) | 8).toString(16) + h.slice(17, 20) + '-' + h.slice(20, 32);
+}
+
 function pad_(n, width) {
   var s = String(n);
   while (s.length < width) s = '0' + s;
@@ -180,6 +224,51 @@ function clampInt_(value, min, max, fallback) {
   var n = parseInt(value, 10);
   if (!isFinite(n)) return fallback;
   return Math.min(max, Math.max(min, n));
+}
+
+/**
+ * Số trong ô Sheet. Cột dữ liệu định dạng văn bản ('@') nên Sheets KHÔNG tự đọc cách gõ kiểu Việt Nam — đọc ở đây:
+ *   số hệ thống ghi: "1500", "12.5", "-3" · gõ tay kiểu Việt: "1.500", "1.500.000", "12,5", "1.500,5" · kiểu Anh nhiều nhóm: "1,500,000".
+ * Một dấu chấm + đúng 3 chữ số ("55.600") là hàng nghìn kiểu Việt (hệ thống không bao giờ ghi đơn giá 3 chữ số lẻ — roundPrice_).
+ * Cách viết hiểu được hai nghĩa ("1,500") hoặc không phải số → NaN. Trống → null.
+ * Trước đây "55.600" đọc thành 55,6, "1.000" thành 1, "1,5" thành 15.
+ */
+function parseSheetNumber_(value) {
+  var s = String(value === null || value === undefined ? '' : value).replace(/\s/g, '');
+  if (s === '') return null;
+  var m;
+  if (/^-?\d{1,3}\.\d{3}$/.test(s)) return Number(s.replace('.', ''));
+  if (/^-?\d+(\.\d+)?$/.test(s)) return Number(s);
+  if ((m = /^(-?\d{1,3}(?:\.\d{3})+)(?:,(\d+))?$/.exec(s))) return Number(m[1].replace(/\./g, '') + (m[2] ? '.' + m[2] : ''));
+  if ((m = /^(-?\d+),(\d+)$/.exec(s))) return m[2].length === 3 ? NaN : Number(m[1] + '.' + m[2]);
+  if (/^-?\d{1,3}(?:,\d{3}){2,}$/.test(s)) return Number(s.replace(/,/g, ''));
+  return NaN;
+}
+
+/** Số nguyên từ ô Sheet; ô trống / không phải số nguyên ("1,5", "abc") → null. */
+function toIntOrNull_(value) {
+  var n = parseSheetNumber_(value);
+  return n === null || !isFinite(n) || Math.floor(n) !== n ? null : n;
+}
+
+/** Số (có thể thập phân) từ ô Sheet; trống / không hợp lệ → null. */
+function toNumberOrNull_(value) {
+  var n = parseSheetNumber_(value);
+  return n === null || !isFinite(n) ? null : n;
+}
+
+/** Đơn giá trước khi ghi: tối đa 2 chữ số lẻ — ô Sheet không bao giờ có dạng "12.345" (đọc lại thành 12345, xem parseSheetNumber_). */
+function roundPrice_(value) {
+  return value === null || value === undefined ? value : Math.round(Number(value) * 100) / 100;
+}
+
+function toBool_(value) {
+  var s = String(value === null || value === undefined ? '' : value).trim().toUpperCase();
+  return s === 'TRUE' || s === '1' || s === 'YES' || s === 'X';
+}
+
+function boolCell_(flag) {
+  return flag ? 'TRUE' : 'FALSE';
 }
 
 function bytesToHex_(bytes) {
@@ -224,7 +313,7 @@ function setProp_(key, value) {
 }
 
 // ============================================================================
-// LockService — tuần tự hóa các thao tác ghi quan trọng (sinh mã, tạo, xác nhận, đổi trạng thái)
+// LockService — tuần tự hóa các thao tác ghi quan trọng (sinh mã, tạo, xác nhận, đổi trạng thái, kho)
 // ============================================================================
 
 var LOCK_DEPTH_ = 0;
@@ -236,16 +325,83 @@ function withScriptLock_(fn) {
     throw appError_('LOCK_TIMEOUT', 'Hệ thống đang bận, vui lòng thử lại sau ít giây.');
   }
   LOCK_DEPTH_++;
+  var result;
   try {
-    return fn();
-  } finally {
+    result = fn();
+  } catch (e) {
     LOCK_DEPTH_--;
+    // Thao tác đã lỗi: vẫn đẩy phần đã ghi rồi nhả khóa. Lỗi flush lúc này chỉ ghi log — lỗi gốc mới là lỗi cần báo.
     try {
-      SpreadsheetApp.flush(); // ghi xong trước khi nhả khóa cho request khác
-    } catch (e) {
-      logError_('withScriptLock_.flush', e);
+      SpreadsheetApp.flush();
+    } catch (flushError) {
+      logError_('withScriptLock_.flush_after_error', flushError);
     }
     lock.releaseLock();
+    throw e;
+  }
+  LOCK_DEPTH_--;
+  try {
+    // Ghi xong trước khi nhả khóa cho request khác. Lỗi ở bước này = dữ liệu có thể chưa được lưu → báo lỗi cho người gọi,
+    // không trả "thành công".
+    SpreadsheetApp.flush();
+  } finally {
+    lock.releaseLock();
+  }
+  return result;
+}
+
+function requireLock_(context) {
+  if (LOCK_DEPTH_ < 1) throw appError_('INTERNAL', context + ' phải chạy trong khóa.');
+}
+
+// ============================================================================
+// Bước phụ sau khi thao tác chính đã ghi xong (ghi lịch sử…)
+// ============================================================================
+
+var POST_COMMIT_ERROR_DAYS_ = 7;
+
+/**
+ * Chạy bước phụ SAU KHI thao tác chính đã lưu (trạng thái đã ghi). Lỗi ở đây KHÔNG biến thao tác đã lưu thành "lỗi"
+ * (người dùng bấm lại sẽ gặp lỗi trạng thái và tưởng chưa lưu) — nhưng luôn được ghi log + lưu vào Script Property
+ * POST_COMMIT_ERRORS và hiện trên trang Cài đặt của quản trị viên (không im lặng). Trả về true nếu bước phụ chạy xong.
+ */
+function afterCommit_(context, ref, fn) {
+  try {
+    fn();
+    return true;
+  } catch (e) {
+    recordPostCommitError_(context, ref, e);
+    return false;
+  }
+}
+
+function readPostCommitErrors_() {
+  var raw = getProp_(PROP.POST_COMMIT_ERRORS);
+  if (!raw) return [];
+  var list;
+  try {
+    list = JSON.parse(raw);
+  } catch (e) {
+    logError_('post_commit.corrupt', e); // ghi đè bằng danh sách mới ở lần lỗi tiếp theo
+    return [];
+  }
+  var since = Date.now() - POST_COMMIT_ERROR_DAYS_ * 24 * 3600 * 1000;
+  return (Array.isArray(list) ? list : []).filter(function (x) {
+    return x && x.at && new Date(x.at).getTime() >= since;
+  });
+}
+
+function recordPostCommitError_(context, ref, err) {
+  logError_('after_commit.' + context, err);
+  try {
+    var list = readPostCommitErrors_();
+    list.unshift({
+      at: nowIso_(), context: context, ref: String(ref || ''),
+      message: truncate_(String(err && err.message ? err.message : err), 300)
+    });
+    setProp_(PROP.POST_COMMIT_ERRORS, JSON.stringify(list.slice(0, 20)));
+  } catch (e2) {
+    logError_('post_commit.record_failed', e2); // đã có log của lỗi gốc ở trên
   }
 }
 
@@ -351,6 +507,17 @@ function columnIndex_(sheet, column) {
   return idx + 1;
 }
 
+/** Số cột (1-based) → ký hiệu A1 ("A", "Z", "AA"…). */
+function columnLetter_(n) {
+  var s = '';
+  while (n > 0) {
+    var m = (n - 1) % 26;
+    s = String.fromCharCode(65 + m) + s;
+    n = Math.floor((n - 1) / 26);
+  }
+  return s;
+}
+
 function rowToObject_(headers, values) {
   var obj = {};
   for (var j = 0; j < headers.length; j++) {
@@ -394,6 +561,36 @@ function readColumn_(sheet, column) {
 }
 
 /**
+ * Đọc một số cột của sheet (mỗi cột 1 lần getValues) → mảng object { cột: giá trị, _row }.
+ * Dùng cho sheet lớn khi chỉ cần vài cột (tránh đọc cả bảng). Cột chưa có trong sheet → ''.
+ */
+function readColumns_(name, columns) {
+  var sheet = getSheet_(name);
+  var headers = getHeaders_(sheet);
+  var lastRow = sheet.getLastRow();
+  if (lastRow < 2) return [];
+  var data = {};
+  columns.forEach(function (c) {
+    var idx = headers.indexOf(c);
+    data[c] = idx < 0
+      ? null
+      : sheet.getRange(2, idx + 1, lastRow - 1, 1).getValues().map(function (r) { return cellToString_(r[0]); });
+  });
+  var out = [];
+  for (var i = 0; i < lastRow - 1; i++) {
+    var obj = { _row: i + 2 };
+    var empty = true;
+    columns.forEach(function (c) {
+      var v = data[c] ? data[c][i] : '';
+      obj[c] = v;
+      if (v !== '') empty = false;
+    });
+    if (!empty) out.push(obj);
+  }
+  return out;
+}
+
+/**
  * Tìm các dòng có column === value (khớp toàn bộ ô) bằng TextFinder, rồi đọc theo lô.
  * Trả về [{ rowIndex, record }] theo thứ tự dòng.
  */
@@ -409,14 +606,38 @@ function findRows_(name, column, value) {
     .matchCase(true)
     .matchEntireCell(true)
     .findAll();
-  if (!cells || !cells.length) return [];
-  var rowNumbers = cells.map(function (c) { return c.getRow(); }).sort(function (a, b) { return a - b; });
+  return readRowsAt_(sheet, headers, (cells || []).map(function (c) { return c.getRow(); }), function (record) {
+    return record[column] === String(value);
+  });
+}
+
+/** Tìm các dòng có column BẮT ĐẦU bằng prefix (TextFinder không khớp toàn ô). */
+function findRowsByPrefix_(name, column, prefix) {
+  if (!prefix) return [];
+  var sheet = getSheet_(name);
+  var headers = getHeaders_(sheet);
+  if (headers.indexOf(column) < 0) return [];
+  var col = columnIndex_(sheet, column);
+  var lastRow = sheet.getLastRow();
+  if (lastRow < 2) return [];
+  var cells = sheet.getRange(2, col, lastRow - 1, 1)
+    .createTextFinder(String(prefix))
+    .matchCase(true)
+    .findAll();
+  return readRowsAt_(sheet, headers, (cells || []).map(function (c) { return c.getRow(); }), function (record) {
+    return String(record[column]).indexOf(String(prefix)) === 0;
+  });
+}
+
+function readRowsAt_(sheet, headers, rowNumbers, predicate) {
+  if (!rowNumbers.length) return [];
+  rowNumbers = rowNumbers.slice().sort(function (a, b) { return a - b; });
   var first = rowNumbers[0];
   var last = rowNumbers[rowNumbers.length - 1];
   var results = [];
   var pushIfMatch = function (rowIndex, values) {
     var record = rowToObject_(headers, values);
-    if (record[column] === String(value)) results.push({ rowIndex: rowIndex, record: record });
+    if (predicate(record)) results.push({ rowIndex: rowIndex, record: record });
   };
   if ((last - first + 1) * headers.length <= 60000) {
     var block = sheet.getRange(first, 1, last - first + 1, headers.length).getValues();
@@ -439,11 +660,22 @@ function ensureCapacity_(sheet, lastNeededRow) {
   }
 }
 
+/** Cột thuộc schema hệ thống (HEADERS) nhưng sheet chưa có → lỗi rõ ràng, không âm thầm bỏ giá trị. */
+function missingSchemaColumnError_(name, column) {
+  return appError_('NOT_CONFIGURED', 'Sheet "' + name + '" thiếu cột "' + column + '". Chủ sở hữu Google Sheet hãy chạy menu ' +
+    '"DTA Handover → Thiết lập / cập nhật database".');
+}
+
 /** Ghi thêm nhiều dòng (1 lần setValues). Định dạng văn bản để Sheets không tự đổi kiểu dữ liệu. */
 function appendObjects_(name, objects) {
   if (!objects || !objects.length) return;
   var sheet = getSheet_(name);
   var headers = getHeaders_(sheet);
+  (HEADERS[name] || []).forEach(function (h) {
+    if (headers.indexOf(h) >= 0) return;
+    var hasValue = objects.some(function (o) { return o[h] !== undefined && o[h] !== null && o[h] !== ''; });
+    if (hasValue) throw missingSchemaColumnError_(name, h);
+  });
   var rows = objects.map(function (o) {
     return headers.map(function (h) { return toCell_(o[h]); });
   });
@@ -455,9 +687,34 @@ function appendObjects_(name, objects) {
 }
 
 /**
- * Cập nhật các cột thay đổi của một dòng. Chỉ ghi cột thuộc schema hệ thống, gộp các cột liền kề
- * thành ít lần setValues nhất; không đụng tới cột do quản trị viên tự thêm.
+ * Xác định lại số dòng ngay trước khi ghi: nếu ô định danh ở rowIndex không còn khớp (có người sắp xếp / chèn /
+ * xóa dòng trong lúc đang xử lý) → tìm lại theo ID. Không tìm thấy → CONFLICT (không ghi nhầm dòng khác).
  */
+function verifiedRowIndex_(name, sheet, rowIndex, record) {
+  var idColumn = ROW_ID_COLUMNS[name];
+  if (!idColumn || !record || !record[idColumn]) return rowIndex;
+  var current = cellToString_(sheet.getRange(rowIndex, columnIndex_(sheet, idColumn)).getValue());
+  if (current === String(record[idColumn])) return rowIndex;
+  var found = findRow_(name, idColumn, record[idColumn]);
+  if (!found) {
+    throw appError_('CONFLICT', 'Dữ liệu vừa bị thay đổi trên Google Sheet (không tìm thấy dòng cần cập nhật). Vui lòng thử lại.');
+  }
+  logInfo_('row.relocated', { sheet: name, from: rowIndex, to: found.rowIndex });
+  return found.rowIndex;
+}
+
+/**
+ * Cập nhật các cột thay đổi của một dòng:
+ *   • chỉ ghi cột thuộc schema hệ thống, không đụng cột do quản trị viên tự thêm;
+ *   • chỉ ghi các ô thực sự thay đổi (gộp các cột thay đổi liền kề) — không ghi đè ô khác bằng giá trị cũ;
+ *   • xác minh ô định danh trước khi ghi (verifiedRowIndex_) để không ghi nhầm dòng khi sheet bị sắp xếp;
+ *   • cột "chốt" ghi SAU CÙNG (COMMIT_COLUMN_RANK_): lỗi giữa chừng không để lại trạng thái mới đi kèm dữ liệu cũ
+ *     (ví dụ CONFIRMED mà chưa có chữ ký; hash link mới khi nonce chưa ghi → link không khôi phục được); khi sửa phiếu, phiên
+ *     bản nội dung (items_revision) + xóa dấu "đang sửa" (edit_pending, cột liền kề → cùng một lần ghi) là bước sau cùng.
+ * Trả về số dòng thực tế đã ghi.
+ */
+var COMMIT_COLUMN_RANK_ = { public_token_hash: 1, status: 2, catalog_status: 2, items_revision: 3, edit_pending: 4 };
+
 function updateRowFields_(name, rowIndex, record, changes) {
   var sheet = getSheet_(name);
   var headers = getHeaders_(sheet);
@@ -465,50 +722,86 @@ function updateRowFields_(name, rowIndex, record, changes) {
   (HEADERS[name] || []).forEach(function (h) { known[h] = true; });
   var changedCols = [];
   Object.keys(changes).forEach(function (key) {
+    if (!known[key]) return; // không phải cột hệ thống (ví dụ trường tạm _row) — không ghi
     var idx = headers.indexOf(key);
-    if (idx >= 0 && known[key]) changedCols.push(idx);
+    if (idx < 0) throw missingSchemaColumnError_(name, key);
+    changedCols.push(idx);
   });
-  if (!changedCols.length) return;
+  if (!changedCols.length) return rowIndex;
   changedCols.sort(function (a, b) { return a - b; });
-  var merged = Object.assign({}, record, changes);
+  var targetRow = verifiedRowIndex_(name, sheet, rowIndex, record);
+  var blocks = [];
   var i = 0;
   while (i < changedCols.length) {
     var start = changedCols[i];
     var end = start;
-    // Mở rộng đoạn qua các cột schema liền kề (giữ nguyên giá trị cũ) để giảm số lần ghi.
-    while (i + 1 < changedCols.length) {
-      var next = changedCols[i + 1];
-      var bridgeable = true;
-      for (var c = end + 1; c < next; c++) {
-        if (!known[headers[c]]) { bridgeable = false; break; }
-      }
-      if (!bridgeable) break;
-      end = next;
+    while (i + 1 < changedCols.length && changedCols[i + 1] === end + 1) {
+      end = changedCols[i + 1];
       i++;
     }
-    var values = [];
-    for (var col = start; col <= end; col++) values.push(toCell_(merged[headers[col]]));
-    var range = sheet.getRange(rowIndex, start + 1, 1, values.length);
-    range.setNumberFormat('@');
-    range.setValues([values]);
+    var rank = 0;
+    for (var c = start; c <= end; c++) rank = Math.max(rank, COMMIT_COLUMN_RANK_[headers[c]] || 0);
+    blocks.push({ start: start, end: end, rank: rank });
     i++;
   }
+  blocks.sort(function (a, b) { return a.rank - b.rank || a.start - b.start; });
+  blocks.forEach(function (b) {
+    var values = [];
+    for (var col = b.start; col <= b.end; col++) values.push(toCell_(changes[headers[col]]));
+    var range = sheet.getRange(targetRow, b.start + 1, 1, values.length);
+    range.setNumberFormat('@');
+    range.setValues([values]);
+  });
+  return targetRow;
 }
 
-/** Xóa các dòng theo số thứ tự (từ dưới lên, gộp đoạn liên tiếp). */
-function deleteRowNumbers_(name, rowNumbers) {
-  if (!rowNumbers || !rowNumbers.length) return;
+/**
+ * Ghi cùng một giá trị vào cột `column` cho các dòng có ID trong `ids` (ví dụ đánh dấu superseded_at).
+ * Tìm lại dòng theo ID ngay trước khi ghi (không dùng số dòng cũ); ghi bằng 1 lần RangeList.
+ * Trả về số dòng đã ghi.
+ */
+function setColumnForIds_(name, column, ids, value) {
+  if (!ids || !ids.length) return 0;
   var sheet = getSheet_(name);
-  var sorted = rowNumbers.slice().sort(function (a, b) { return b - a; });
+  var idColumn = ROW_ID_COLUMNS[name];
+  var idCol = columnIndex_(sheet, idColumn);
+  var targetCol = columnIndex_(sheet, column);
+  var lastRow = sheet.getLastRow();
+  if (lastRow < 2) return 0;
+  var wanted = {};
+  ids.forEach(function (id) { wanted[String(id)] = true; });
+  var idValues = sheet.getRange(2, idCol, lastRow - 1, 1).getValues();
+  var notations = [];
+  for (var i = 0; i < idValues.length; i++) {
+    if (wanted[cellToString_(idValues[i][0])]) notations.push(columnLetter_(targetCol) + (i + 2));
+  }
+  if (!notations.length) return 0;
+  var list = sheet.getRangeList(notations);
+  list.setNumberFormat('@');
+  list.setValue(toCell_(value));
+  return notations.length;
+}
+
+/**
+ * Xóa các dòng thỏa điều kiện theo GIÁ TRỊ (không theo số dòng đã lưu trước đó): đọc lại cột rồi xóa từ dưới lên.
+ * Chỉ dùng cho dữ liệu phụ (ví dụ nhân viên mẫu DEMO-) — dữ liệu nghiệp vụ không bao giờ bị xóa.
+ */
+function deleteRowsWhere_(name, column, predicate) {
+  var sheet = getSheet_(name);
+  var values = readColumn_(sheet, column);
+  var rows = [];
+  values.forEach(function (v, i) { if (predicate(v)) rows.push(i + 2); });
+  rows.sort(function (a, b) { return b - a; });
   var i = 0;
-  while (i < sorted.length) {
-    var end = sorted[i];
+  while (i < rows.length) {
+    var end = rows[i];
     var start = end;
-    while (i + 1 < sorted.length && sorted[i + 1] === start - 1) {
-      start = sorted[i + 1];
+    while (i + 1 < rows.length && rows[i + 1] === start - 1) {
+      start = rows[i + 1];
       i++;
     }
     sheet.deleteRows(start, end - start + 1);
     i++;
   }
+  return rows.length;
 }

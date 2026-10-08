@@ -23,6 +23,11 @@ function sha256Hex_(text) {
   return bytesToHex_(Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, text, Utilities.Charset.UTF_8));
 }
 
+/** SHA-256 của mảng byte (ảnh chữ ký) — lưu cùng biên bản để phát hiện file bị thay. */
+function sha256BytesHex_(bytes) {
+  return bytesToHex_(Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, bytes));
+}
+
 /** So sánh thời gian hằng (tránh lộ thông tin qua thời gian phản hồi). */
 function timingSafeEqual_(a, b) {
   a = String(a);
@@ -88,6 +93,10 @@ function verifyRequest_(raw) {
  */
 function rateLimitHit_(bucket, key, limit, windowSeconds) {
   if (!key) return true;
+  if (!(windowSeconds >= 1 && windowSeconds <= APP.CACHE_MAX_TTL_SECONDS)) {
+    // CacheService chỉ giữ tối đa 6 giờ (theo tài liệu Apps Script) — giới hạn dài hơn phải đếm từ Sheet.
+    throw appError_('INTERNAL', 'Cửa sổ giới hạn tần suất "' + bucket + '" vượt ' + APP.CACHE_MAX_TTL_SECONDS + ' giây.');
+  }
   var cache = CacheService.getScriptCache();
   var cacheKey = 'rl:' + bucket + ':' + String(key).slice(0, 64);
   var current = parseInt(cache.get(cacheKey) || '0', 10) || 0;
@@ -98,7 +107,7 @@ function rateLimitHit_(bucket, key, limit, windowSeconds) {
 
 function enforceRateLimit_(bucket, key, limit, windowSeconds) {
   if (!rateLimitHit_(bucket, key, limit, windowSeconds)) {
-    throw appError_('RATE_LIMITED', 'Bạn thao tác quá nhiều lần. Vui lòng thử lại sau ít phút.');
+    throw appError_('RATE_LIMITED', 'Bạn thao tác quá nhiều lần. Vui lòng thử lại sau ít phút.', { retryAfterSeconds: windowSeconds });
   }
 }
 
@@ -125,4 +134,20 @@ function sanitizeClient_(client) {
     ipHash: /^[0-9a-f]{16,64}$/.test(ipHash) ? ipHash : '',
     userAgent: truncate_(cleanLine_(client.userAgent), 300)
   };
+}
+
+/**
+ * Người thực hiện thao tác quản trị (Worker gửi sau khi xác thực phiên admin).
+ * id: tên đăng nhập; name: tên hiển thị — ghi vào LICH_SU / VPP_BIEN_DONG_KHO để biết "ai đã làm".
+ */
+function sanitizeActor_(actor) {
+  actor = actor && typeof actor === 'object' ? actor : {};
+  var id = truncate_(cleanLine_(actor.id), 60);
+  var name = truncate_(cleanLine_(actor.name), 120);
+  if (!/^[A-Za-z0-9._@-]{1,60}$/.test(id)) id = 'admin';
+  return { id: id, name: name || 'Quản trị viên' };
+}
+
+function actorLabel_(actor) {
+  return actor.id && actor.id !== 'admin' ? actor.name + ' (' + actor.id + ')' : actor.name;
 }

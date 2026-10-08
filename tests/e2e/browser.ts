@@ -2,10 +2,47 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { chromium, type Browser, type Locator, type Page } from 'playwright-core';
 
-export const BASE = process.env.E2E_BASE_URL ?? 'http://127.0.0.1:8788';
-export const ADMIN_PASSWORD = process.env.E2E_ADMIN_PASSWORD ?? '';
-export const EMULATOR_STATE_URL = process.env.E2E_EMULATOR_STATE_URL ?? '';
+/** Biến E2E_* — từ môi trường (npm run test:e2e) hoặc tệp do `run-e2e.mjs --serve` ghi ra (E2E_ENV_FILE). */
+function readEnv(): Record<string, string> {
+  const file = process.env.E2E_ENV_FILE;
+  const fromFile = file && fs.existsSync(file) ? (JSON.parse(fs.readFileSync(file, 'utf8')) as Record<string, string>) : {};
+  return { ...fromFile, ...Object.fromEntries(Object.entries(process.env).filter(([k, v]) => k.startsWith('E2E_') && v !== undefined)) } as Record<
+    string,
+    string
+  >;
+}
+const env = readEnv();
+
+export const BASE = env.E2E_BASE_URL ?? 'http://127.0.0.1:8788';
+export const ADMIN_PASSWORD = env.E2E_ADMIN_PASSWORD ?? '';
+export const STAFF_CODE = env.E2E_STAFF_CODE ?? '';
+export const EMULATOR_STATE_URL = env.E2E_EMULATOR_STATE_URL ?? '';
+/** Hộp thư MailApp giả lập (mã OTP khi ký, email thông báo) — cùng máy chủ với /__emulator/state. */
+export const EMULATOR_MAIL_URL = EMULATOR_STATE_URL.replace(/\/__emulator\/state$/, '/__emulator/mail');
 export const SCREENSHOT_DIR = path.resolve(import.meta.dirname, '..', '..', '.e2e', 'screenshots');
+
+/** Mã OTP mới nhất gửi cho biên bản `handoverCode` (tiêu đề "Mã xác nhận biên bản <mã>: NNNNNN"). */
+export async function latestOtp(handoverCode: string): Promise<string> {
+  if (!EMULATOR_STATE_URL) throw new Error('E2E cần Apps Script giả lập (E2E_EMULATOR_STATE_URL) để đọc mã OTP.');
+  for (let attempt = 0; attempt < 20; attempt++) {
+    const { mail } = (await (await fetch(EMULATOR_MAIL_URL)).json()) as { mail: Array<{ subject: string }> };
+    for (let i = mail.length - 1; i >= 0; i--) {
+      const m = /^Mã xác nhận biên bản (\S+): (\d{6})$/.exec(mail[i]!.subject);
+      if (m && m[1] === handoverCode) return m[2]!;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 250));
+  }
+  throw new Error(`Không thấy email mã OTP cho ${handoverCode}`);
+}
+
+/** Người nhận bấm "Gửi mã xác nhận", mở email (hộp thư giả lập) rồi nhập mã. Trả về mã đã nhập. */
+export async function enterOtp(page: Page, handoverCode: string, override?: (code: string) => string): Promise<string> {
+  await page.getByRole('button', { name: 'Gửi mã xác nhận', exact: true }).click();
+  await page.getByText(/^Đã gửi mã tới /).waitFor();
+  const code = await latestOtp(handoverCode);
+  await page.getByLabel('Mã xác nhận 6 số').fill(override ? override(code) : code);
+  return code;
+}
 
 /** Dùng Chrome / Edge đã cài trên máy (không tải trình duyệt riêng). */
 export async function launchBrowser(): Promise<Browser> {

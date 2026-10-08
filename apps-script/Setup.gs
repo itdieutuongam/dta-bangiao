@@ -12,6 +12,9 @@
  *   refreshCaches()            Xóa cache sau khi sửa trực tiếp NHAN_VIEN / LOAI_BAN_GIAO / CAU_HINH.
  *   backupNow()                Tạo bản sao Spreadsheet vào DTA_HANDOVER/backups.
  *   installWeeklyBackupTrigger()  Tự động sao lưu 2h sáng Chủ nhật hằng tuần.
+ *   upgradeOfficeSupplyModule()   Nâng cấp lên v2 (module Văn phòng phẩm) — xem VppSetup.gs.
+ *   seedOfficeSupplyNorms() / seedInitialOfficeSupplyStock()   Định mức / tồn đầu kỳ VPP (chạy thủ công).
+ *   protectSystemSheets()      Khóa các sheet do hệ thống ghi (chỉ chủ sở hữu script sửa được).
  *
  * Secret BACKEND_SHARED_SECRET lưu trong Script Properties (nhập qua menu hoặc
  * Project Settings → Script properties) — KHÔNG viết vào code. Xem apps-script/README.md.
@@ -22,8 +25,16 @@ function getUi_() {
   try {
     return SpreadsheetApp.getUi();
   } catch (e) {
-    return null;
+    return null; // chạy trong editor / trigger: không có giao diện Sheet — người gọi tự ghi log kết quả
   }
+}
+
+/** Ghi log + hiện hộp thoại (nếu chạy từ menu Sheet). Trả về thông điệp để chạy từ editor cũng thấy kết quả. */
+function showResult_(title, message) {
+  console.log(title + ': ' + message);
+  var ui = getUi_();
+  if (ui) ui.alert(title, message, ui.ButtonSet.OK);
+  return message;
 }
 
 /** Hộp thoại nhập khóa kết nối. Trả về true nếu đã lưu. */
@@ -89,21 +100,15 @@ function setupDatabase() {
     report.push('Không đặt được múi giờ Spreadsheet: ' + e.message);
   }
 
-  // 2) Sheets + cột
-  Object.keys(HEADERS).forEach(function (name) {
-    report.push(ensureSheet_(ss, name, HEADERS[name]));
-  });
+  // 2) Drive (trước để có thư mục backups khi cần sao lưu trước nâng cấp)
+  report.push(ensureDriveStructure_());
+
+  // 3) Sheets + cột + danh mục mặc định + loại "Văn phòng phẩm" + cấu hình (chỉ thêm phần thiếu, không xóa dữ liệu)
+  withScriptLock_(function () { ensureSchemaV2_(ss, report); });
   removeDefaultEmptySheet_(ss, report);
   resetHeaderCache_();
 
-  // 3) Dữ liệu danh mục mặc định (chỉ thêm khi chưa có)
-  report.push(seedDefaultCategories_());
-  report.push(seedDefaultSettings_());
-
-  // 4) Drive
-  report.push(ensureDriveStructure_());
-
-  // 5) Secret
+  // 4) Secret
   var secret = getProp_(PROP.SHARED_SECRET);
   report.push(secret && secret.length >= 32
     ? 'BACKEND_SHARED_SECRET: đã cấu hình (' + secret.length + ' ký tự).'
@@ -183,7 +188,8 @@ function seedDefaultCategories_() {
       sort_order: c.sort_order,
       status: 'ACTIVE',
       created_at: now,
-      updated_at: now
+      updated_at: now,
+      handover_type: c.handover_type
     };
   }));
   return 'LOAI_BAN_GIAO: thêm ' + DEFAULT_CATEGORIES.length + ' loại mặc định.';
@@ -219,6 +225,24 @@ function ensureDriveStructure_() {
 function checkSetup() {
   var lines = [];
   var ok = true;
+  // Code đủ file và cùng một phiên bản (thiếu Notify.gs, còn file .gs cũ ghi đè…) — kiểm tra đầu tiên vì mọi thứ khác dựa vào đó.
+  try {
+    assertCodeConsistent_();
+    var routes = loadRoutes_();
+    var missingHandlers = Object.keys(routes).filter(function (name) { return typeof routes[name].handler !== 'function'; });
+    if (missingHandlers.length) throw new Error('thiếu xử lý cho ' + missingHandlers.join(', '));
+    lines.push('✓ Code Apps Script đầy đủ, một phiên bản (v' + CODE_VERSION_ + ')');
+  } catch (e) {
+    ok = false;
+    lines.push('✗ Code Apps Script: ' + e.message);
+  }
+  var schema = parseInt(getProp_(PROP.SCHEMA_VERSION), 10) || 0;
+  if (schema < APP.SCHEMA_VERSION) {
+    ok = false;
+    lines.push('✗ Cấu trúc dữ liệu v' + schema + ' — cần chạy "Nâng cấp module Văn phòng phẩm" (upgradeOfficeSupplyModule).');
+  } else {
+    lines.push('✓ Cấu trúc dữ liệu v' + schema + ' (code v' + APP.VERSION + ')');
+  }
   var secret = getProp_(PROP.SHARED_SECRET);
   if (!secret) {
     ok = false;
@@ -253,6 +277,11 @@ function checkSetup() {
     }).length;
     if (invalidStatus) lines.push('⚠ ' + invalidStatus + ' nhân viên có status khác ACTIVE/INACTIVE (được coi là INACTIVE).');
     lines.push('• Loại bàn giao: ' + loadCategoriesFromSheet_().map(function (c) { return c.name + (c.active ? '' : ' (tắt)'); }).join(', '));
+    if (ss.getSheetByName(SHEETS.VPP_PRODUCTS) && ss.getSheetByName(SHEETS.VPP_NORMS)) {
+      var vppProducts = loadProducts_();
+      lines.push('• Văn phòng phẩm: ' + vppProducts.filter(function (p) { return p.catalogStatus === CATALOG_STATUS.MASTER; }).length +
+        ' sản phẩm danh mục, ' + loadNorms_().length + ' định mức, ' + vppReviewCounts_().total + ' mục cần kiểm tra');
+    }
   } catch (e) {
     ok = false;
     lines.push('✗ Spreadsheet: ' + e.message);
@@ -262,6 +291,27 @@ function checkSetup() {
   } catch (e) {
     ok = false;
     lines.push('✗ Drive: ' + e.message);
+  }
+  // Email: mã OTP khi ký cần MailApp (chủ sở hữu phải cấp quyền "Gửi email thay bạn" một lần).
+  // CAU_HINH đọc lỗi → báo ✗ riêng, vẫn kiểm tra MailApp với chế độ mặc định (EMAIL) thay vì dừng cả bản kiểm tra.
+  var otpMode = 'EMAIL';
+  var recipients = 0;
+  try {
+    otpMode = otpMode_();
+    recipients = notifyRecipients_().length;
+  } catch (e) {
+    ok = false;
+    lines.push('✗ Đọc cấu hình email (CAU_HINH: CONFIRM_OTP, NOTIFY_EMAILS): ' + e.message);
+  }
+  try {
+    var quota = MailApp.getRemainingDailyQuota();
+    lines.push('✓ Gửi email (MailApp): còn ' + quota + ' lượt hôm nay · Mã OTP khi ký: ' + otpMode +
+      ' · Người nhận thông báo: ' + recipients);
+  } catch (e) {
+    if (otpMode !== 'OFF') ok = false;
+    lines.push((otpMode !== 'OFF' ? '✗' : '⚠') + ' Gửi email (MailApp): ' + e.message +
+      ' — chạy menu "Gửi thử email thông báo" để cấp quyền gửi email' +
+      (otpMode !== 'OFF' ? ' (CONFIRM_OTP = ' + otpMode + ': người nhận có email sẽ KHÔNG ký được khi chưa gửi được mã).' : '.'));
   }
   lines.push(ok ? 'KẾT QUẢ: Cấu hình hợp lệ.' : 'KẾT QUẢ: Còn mục cần xử lý (✗).');
   var text = lines.join('\n');
@@ -298,14 +348,14 @@ function seedSampleEmployees() {
 }
 
 function removeSampleEmployees() {
-  var sheet = getSheet_(SHEETS.EMPLOYEES);
-  var rows = [];
-  readColumn_(sheet, 'employee_id').forEach(function (id, i) {
-    if (String(id).toUpperCase().indexOf(APP.SAMPLE_EMPLOYEE_PREFIX) === 0) rows.push(i + 2);
+  var count = withScriptLock_(function () {
+    // Đọc lại cột và xóa theo GIÁ TRỊ ngay trong khóa (không dùng số dòng đã lưu từ trước).
+    return deleteRowsWhere_(SHEETS.EMPLOYEES, 'employee_id', function (id) {
+      return String(id).toUpperCase().indexOf(APP.SAMPLE_EMPLOYEE_PREFIX) === 0;
+    });
   });
-  withScriptLock_(function () { deleteRowNumbers_(SHEETS.EMPLOYEES, rows); });
   invalidateCaches_();
-  var msg = 'Đã xóa ' + rows.length + ' nhân viên mẫu.';
+  var msg = 'Đã xóa ' + count + ' nhân viên mẫu.';
   console.log(msg);
   notifyUser_(msg);
   return msg;
@@ -330,13 +380,67 @@ function backupNow() {
   return msg;
 }
 
+/**
+ * Sao lưu theo lịch (trigger hằng tuần). Trigger thuộc về người cài (Apps Script chỉ thấy trigger của chính mình) nên nhiều người
+ * cùng cài sẽ có nhiều trigger — dấu "lần sao lưu tự động gần nhất" dùng chung giữ mỗi tuần tối đa một bản. "Sao lưu ngay" (chạy
+ * tay) luôn sao lưu.
+ */
+function scheduledBackup() {
+  var claimed = withScriptLock_(function () {
+    var last = getProp_(PROP.LAST_SCHEDULED_BACKUP);
+    if (last && Date.now() - new Date(last).getTime() < 6 * 24 * 3600 * 1000) return false;
+    setProp_(PROP.LAST_SCHEDULED_BACKUP, nowIso_());
+    return true;
+  });
+  if (!claimed) return 'Tuần này đã sao lưu tự động (trigger khác đã chạy) — bỏ qua.';
+  try {
+    return backupNow();
+  } catch (e) {
+    setProp_(PROP.LAST_SCHEDULED_BACKUP, ''); // lỗi → lần chạy sau (hoặc trigger khác) thử lại
+    throw e;
+  }
+}
+
 function installWeeklyBackupTrigger() {
   ScriptApp.getProjectTriggers().forEach(function (t) {
-    if (t.getHandlerFunction() === 'backupNow') ScriptApp.deleteTrigger(t);
+    var handler = t.getHandlerFunction();
+    if (handler === 'backupNow' || handler === 'scheduledBackup') ScriptApp.deleteTrigger(t);
   });
-  ScriptApp.newTrigger('backupNow').timeBased().onWeekDay(ScriptApp.WeekDay.SUNDAY).atHour(2).create();
-  var msg = 'Đã cài lịch sao lưu tự động: 2h sáng Chủ nhật hằng tuần.';
+  ScriptApp.newTrigger('scheduledBackup').timeBased().onWeekDay(ScriptApp.WeekDay.SUNDAY).atHour(2).create();
+  var msg = 'Đã cài lịch sao lưu tự động: 2h sáng Chủ nhật hằng tuần (nếu người khác cũng đã cài, mỗi tuần vẫn chỉ một bản).';
   console.log(msg);
+  return msg;
+}
+
+/**
+ * Khóa các sheet do hệ thống ghi (BAN_GIAO, CHI_TIET_BAN_GIAO, LICH_SU, tồn kho, biến động kho, đề xuất):
+ * chỉ tài khoản chạy script (chủ sở hữu) sửa được — người khác có quyền Editor không thể sửa tay / sắp xếp làm lệch
+ * dữ liệu. NHAN_VIEN, LOAI_BAN_GIAO, CAU_HINH, VPP_SAN_PHAM, VPP_DINH_MUC vẫn sửa trực tiếp được.
+ */
+function protectSystemSheets() {
+  var ss = getSpreadsheet_();
+  var me = Session.getEffectiveUser();
+  var names = [
+    SHEETS.HANDOVERS, SHEETS.ITEMS, SHEETS.HISTORY, SHEETS.VPP_STOCK, SHEETS.VPP_MOVEMENTS, SHEETS.VPP_PROPOSALS,
+    SHEETS.VPP_PROPOSAL_ITEMS
+  ];
+  var done = [];
+  names.forEach(function (name) {
+    var sheet = ss.getSheetByName(name);
+    if (!sheet) return;
+    var existing = sheet.getProtections(SpreadsheetApp.ProtectionType.SHEET);
+    var protection = existing.length ? existing[0] : sheet.protect();
+    protection.setDescription('DTA Handover – chỉ hệ thống ghi (không sửa tay)');
+    protection.addEditor(me);
+    var others = protection.getEditors().filter(function (u) { return u.getEmail() !== me.getEmail(); });
+    if (others.length) protection.removeEditors(others);
+    if (protection.canDomainEdit()) protection.setDomainEdit(false);
+    done.push(name);
+  });
+  var msg = 'Đã khóa ' + done.length + ' sheet hệ thống (chỉ ' + me.getEmail() + ' sửa được): ' + done.join(', ');
+  console.log(msg);
+  var ui = getUi_();
+  if (ui) ui.alert('DTA Handover', msg, ui.ButtonSet.OK);
   return msg;
 }
 
@@ -346,27 +450,40 @@ function onOpen() {
     SpreadsheetApp.getUi()
       .createMenu('DTA Handover')
       .addItem('Thiết lập / cập nhật database', 'setupDatabase')
+      .addItem('Nâng cấp module Văn phòng phẩm (v2)', 'upgradeOfficeSupplyModule')
       .addItem('Kiểm tra cấu hình', 'checkSetup')
       .addItem('Nhập / đổi khóa kết nối (BACKEND_SHARED_SECRET)', 'setSharedSecret')
+      .addSeparator()
+      .addItem('Khởi tạo định mức VPP (từ bản định mức)', 'seedOfficeSupplyNorms')
+      .addItem('Nhập tồn đầu kỳ VPP (chạy 1 lần)', 'seedInitialOfficeSupplyStock')
       .addSeparator()
       .addItem('Làm mới cache (sau khi sửa nhân viên)', 'refreshCaches')
       .addItem('Thêm nhân viên mẫu (DEMO-)', 'seedSampleEmployees')
       .addItem('Xóa nhân viên mẫu (DEMO-)', 'removeSampleEmployees')
       .addSeparator()
+      .addItem('Khóa sheet hệ thống (chỉ hệ thống ghi)', 'protectSystemSheets')
       .addItem('Sao lưu ngay', 'backupNow')
+      .addSeparator()
+      .addItem('Gửi thử email thông báo (NOTIFY_EMAILS)', 'sendTestNotification')
+      .addItem('Bật email tổng hợp hằng ngày (8h sáng)', 'installDailyDigestTrigger')
       .addToUi();
   } catch (e) {
-    // Script độc lập (không gắn Sheet) — bỏ qua.
+    // Script độc lập (không gắn Sheet) không có menu — chỉ ghi log để biết.
+    logInfo_('onOpen.no_ui', { message: String(e && e.message ? e.message : e) });
   }
 }
 
-/** Sửa trực tiếp NHAN_VIEN / LOAI_BAN_GIAO / CAU_HINH → xóa cache để Web App thấy dữ liệu mới ngay. */
+/** Sửa trực tiếp NHAN_VIEN / LOAI_BAN_GIAO / CAU_HINH / danh mục VPP → xóa cache để Web App thấy dữ liệu mới ngay. */
 function onEdit(e) {
   try {
     var name = e && e.range ? e.range.getSheet().getName() : '';
-    if (name === SHEETS.EMPLOYEES || name === SHEETS.CATEGORIES || name === SHEETS.SETTINGS) invalidateCaches_();
+    if (name === SHEETS.EMPLOYEES || name === SHEETS.CATEGORIES || name === SHEETS.SETTINGS || name === SHEETS.VPP_PRODUCTS ||
+        name === SHEETS.VPP_NORMS) {
+      invalidateCaches_();
+    }
   } catch (err) {
-    // Simple trigger không được phép ném lỗi ra giao diện.
+    // Simple trigger không được ném lỗi ra giao diện người đang sửa Sheet → ghi log (Executions) để theo dõi.
+    logError_('onEdit.invalidate_cache', err);
   }
 }
 
@@ -374,6 +491,7 @@ function notifyUser_(message) {
   try {
     SpreadsheetApp.getActiveSpreadsheet().toast(message, 'DTA Handover', 6);
   } catch (e) {
-    // Không chạy trong giao diện Sheet.
+    // Không chạy trong giao diện Sheet (editor / trigger) → thông điệp vẫn có trong log.
+    logInfo_('notifyUser.no_ui', { message: message });
   }
 }

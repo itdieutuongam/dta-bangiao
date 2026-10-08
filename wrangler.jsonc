@@ -31,10 +31,13 @@
 
   // Cloudflare Workers Rate Limiting — giới hạn theo IP trong chu kỳ 60 giây.
   // namespace_id: số nguyên tùy chọn, duy nhất trong tài khoản Cloudflare.
+  // RL_AUTH_ACCOUNT: đếm đăng nhập quản trị theo TÊN ĐĂNG NHẬP (mọi IP) — cao hơn RL_AUTH (theo IP) để một IP dò mật khẩu
+  // không khóa được tài khoản của quản trị viên thật, nhưng dò từ nhiều IP vẫn bị chặn.
   "ratelimits": [
     { "name": "RL_PUBLIC", "namespace_id": "7301", "simple": { "limit": 120, "period": 60 } },
     { "name": "RL_WRITE", "namespace_id": "7302", "simple": { "limit": 20, "period": 60 } },
-    { "name": "RL_AUTH", "namespace_id": "7303", "simple": { "limit": 10, "period": 60 } }
+    { "name": "RL_AUTH", "namespace_id": "7303", "simple": { "limit": 10, "period": 60 } },
+    { "name": "RL_AUTH_ACCOUNT", "namespace_id": "7304", "simple": { "limit": 30, "period": 60 } }
   ],
 
   // Workers Logs. Tắt invocation log mặc định vì nó ghi nguyên URL (chứa token link xác nhận);

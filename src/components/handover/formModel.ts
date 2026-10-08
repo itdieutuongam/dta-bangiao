@@ -1,7 +1,8 @@
-import { ITEM_FIELD_KEYS, type ItemFieldKey } from '../../../shared/constants';
+import { ITEM_FIELD_KEYS, VPP_CATEGORY_CODE, type HandoverType, type ItemFieldKey } from '../../../shared/constants';
 import { handoverInputSchema, toFieldErrors } from '../../../shared/schemas';
 import type { Category, Employee, HandoverInput, HandoverItem, HandoverItemInput } from '../../../shared/types';
 import { pickCategoryFields, validateItemsAgainstCategories } from '../../../shared/validation';
+import { numberFormatError, parseViNumber } from '../../utils/number';
 
 export type ItemValues = Record<ItemFieldKey, string>;
 
@@ -31,6 +32,16 @@ export function newUid(): string {
   return Math.random().toString(36).slice(2) + Date.now().toString(36);
 }
 
+/** Loại nội dung dùng được cho một loại phiếu (không gồm văn phòng phẩm — có form riêng). "Khác" = mọi loại. */
+export function categoriesForType(categories: Category[], handoverType: HandoverType): Category[] {
+  return categories.filter(
+    (c) =>
+      c.code !== VPP_CATEGORY_CODE &&
+      c.handoverType !== 'OFFICE_SUPPLY' &&
+      (handoverType === 'OTHER' || c.handoverType === handoverType),
+  );
+}
+
 function emptyValues(): ItemValues {
   const values = {} as ItemValues;
   for (const key of ITEM_FIELD_KEYS) values[key] = '';
@@ -57,14 +68,14 @@ export function isItemTouched(item: FormItem): boolean {
 
 function toItemInput(item: FormItem, category: Category | undefined): HandoverItemInput {
   const v = item.values;
-  const quantityText = v.quantity.trim();
   const base: HandoverItemInput = {
     category: item.category,
     itemName: v.itemName,
     assetCode: v.assetCode,
     serialNumber: v.serialNumber,
     model: v.model,
-    quantity: quantityText === '' ? null : Number(quantityText),
+    quantity: parseViNumber(v.quantity),
+    unit: v.unit,
     condition: v.condition,
     description: v.description,
     workStatus: v.workStatus,
@@ -75,15 +86,17 @@ function toItemInput(item: FormItem, category: Category | undefined): HandoverIt
   return pickCategoryFields(base, category);
 }
 
-export function toHandoverInput(values: HandoverFormValues, categories: Category[]): HandoverInput {
+export function toHandoverInput(values: HandoverFormValues, categories: Category[], handoverType: HandoverType): HandoverInput {
   const byCode = new Map(categories.map((c) => [c.code, c]));
   return {
+    handoverType,
     sender: values.senderEmployee
       ? { name: values.senderEmployee.fullName, employeeId: values.senderEmployee.employeeId }
       : { name: values.senderName, employeeId: '' },
     receiverEmployeeId: values.receiver?.employeeId ?? '',
     note: values.note,
     items: values.items.map((item) => toItemInput(item, byCode.get(item.category))),
+    supplies: [],
   };
 }
 
@@ -115,12 +128,17 @@ export function splitErrors(fieldErrors: Record<string, string>, items: FormItem
 export function validateHandoverForm(
   values: HandoverFormValues,
   categories: Category[],
+  handoverType: HandoverType,
 ): { input: HandoverInput | null; errors: FormErrors } {
-  const raw = toHandoverInput(values, categories);
+  const raw = toHandoverInput(values, categories, handoverType);
   const parsed = handoverInputSchema.safeParse(raw);
   const fieldErrors = parsed.success ? {} : toFieldErrors(parsed.error);
   // Thông báo theo cấu hình loại ("Tên thiết bị là bắt buộc") cụ thể hơn thông báo chung → ưu tiên.
   Object.assign(fieldErrors, validateItemsAgainstCategories(raw.items, categories));
+  // Số lượng gõ sai định dạng ("1,5"…) — NaN chỉ có ở ô đang hiển thị (ô ẩn đã được đặt null).
+  raw.items.forEach((item, i) => {
+    if (Number.isNaN(item.quantity)) fieldErrors[`items.${i}.quantity`] = numberFormatError(values.items[i]?.values.quantity ?? '') ?? 'Số lượng phải là số';
+  });
   if (!values.receiver && !fieldErrors.receiverEmployeeId) {
     fieldErrors.receiverEmployeeId = 'Chọn người nhận từ danh sách nhân viên';
   }

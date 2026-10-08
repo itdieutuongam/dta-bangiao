@@ -1,6 +1,7 @@
-import { ITEM_FIELD_META, LIMITS, type ItemFieldKey } from '../../../shared/constants';
+import { ITEM_FIELD_META, type ItemFieldKey } from '../../../shared/constants';
 import { cn } from '../../utils/cn';
 import { describedBy, Field } from '../ui/Field';
+import { NumberInput } from '../ui/NumberInput';
 
 interface ItemFieldInputProps {
   id: string;
@@ -39,17 +40,7 @@ export function ItemFieldInput({ id, fieldKey, label, required, value, error, on
       );
       break;
     case 'number':
-      control = (
-        <input
-          {...common}
-          type="number"
-          inputMode="numeric"
-          min={1}
-          max={LIMITS.maxQuantity}
-          step={1}
-          onChange={(e) => onChange(e.target.value)}
-        />
-      );
+      control = <NumberInput {...common} onChange={(e) => onChange(e.target.value)} />;
       break;
     case 'date':
       control = <input {...common} type="date" onChange={(e) => onChange(e.target.value)} />;

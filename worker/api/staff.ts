@@ -8,7 +8,7 @@ import { ApiError, ok } from '../utils/http';
 import { logEvent } from '../utils/log';
 import { assertSameOrigin, parseOrThrow, readJson } from '../utils/request';
 
-/** GET /api/staff/session — trang tạo bàn giao có yêu cầu mã truy cập nội bộ không? */
+/** GET /api/staff/session — trang đề xuất văn phòng phẩm có yêu cầu mã truy cập nội bộ không? (phiên admin cũng được tính) */
 export async function staffSessionHandler(c: RequestContext): Promise<Response> {
   const required = Boolean(c.env.STAFF_ACCESS_CODE?.trim());
   const authenticated =

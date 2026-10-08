@@ -186,7 +186,10 @@ class CacheMock {
     const text = String(value);
     if (key.length > 250) throw new Error('Argument too large: key');
     if (Buffer.byteLength(text, 'utf8') > 100 * 1024) throw new Error('Argument too large: value');
-    this.map.set(key, { value: text, expires: Date.now() + Math.min(ttl, 21600) * 1000 });
+    // Tài liệu Apps Script giới hạn thời hạn 1…21600 giây (6 giờ); giá trị ngoài khoảng có thể bị từ chối trên máy chủ thật —
+    // giả lập báo lỗi (thay vì âm thầm cắt bớt) để phát hiện sớm khi chạy test.
+    if (!(ttl >= 1 && ttl <= 21600)) throw new Error(`Argument too large: expirationInSeconds (${ttl})`);
+    this.map.set(key, { value: text, expires: Date.now() + ttl * 1000 });
   }
   getAll(keys) {
     const out = {};
@@ -265,7 +268,7 @@ class RangeMock {
   }
   getValues() {
     this.sheet._touch();
-    const out = Array.from({ length: this.numRows }, () => new Array(this.numCols).fill(''));
+    const out = Array.from({ length: this.numRows }, () => Array.from({ length: this.numCols }, () => ''));
     this._cells((R, C, r, c) => {
       const v = this.sheet._get(R, C);
       out[r][c] = v && typeof v === 'object' && v.__formula ? '#FORMULA!' : isDate(v) ? new Date(v.getTime()) : v;
@@ -273,7 +276,7 @@ class RangeMock {
     return out;
   }
   getDisplayValues() {
-    const out = Array.from({ length: this.numRows }, () => new Array(this.numCols).fill(''));
+    const out = Array.from({ length: this.numRows }, () => Array.from({ length: this.numCols }, () => ''));
     this._cells((R, C, r, c) => {
       out[r][c] = displayValue(this.sheet._get(R, C));
     });
@@ -380,6 +383,7 @@ class SheetMock {
     this.maxRows = 1000;
     this.maxCols = 26;
     this.frozenRows = 0;
+    this.protections = [];
   }
   _touch() {
     if (this.spreadsheet.runtime.faults.consume('sheets')) {
@@ -433,6 +437,33 @@ class SheetMock {
   getMaxColumns() {
     return this.maxCols;
   }
+  /** RangeList cho danh sách ô dạng A1 đơn ("Q5", "AB12") — đủ cho setValue / setNumberFormat. */
+  getRangeList(notations) {
+    const ranges = notations.map((a1) => {
+      const m = /^([A-Z]+)(\d+)$/.exec(String(a1));
+      if (!m) throw new Error(`Emulator: unsupported A1 notation ${a1}`);
+      let col = 0;
+      for (const ch of m[1]) col = col * 26 + (ch.charCodeAt(0) - 64);
+      return this.getRange(Number(m[2]), col, 1, 1);
+    });
+    return {
+      getRanges: () => ranges,
+      setValue: (value) => {
+        for (const r of ranges) r.setValue(value);
+      },
+      setNumberFormat: (format) => {
+        for (const r of ranges) r.setNumberFormat(format);
+      },
+    };
+  }
+  protect() {
+    const protection = new ProtectionMock(this);
+    this.protections.push(protection);
+    return protection;
+  }
+  getProtections() {
+    return [...this.protections];
+  }
   getRange(row, col, numRows = 1, numCols = 1) {
     if (typeof row !== 'number') throw new Error('Emulator: A1 notation is not supported');
     if (row < 1 || col < 1 || numRows < 1 || numCols < 1) {
@@ -455,7 +486,7 @@ class SheetMock {
     return this;
   }
   insertColumnsAfter(after, count) {
-    for (const row of this.data) if (row && row.length > after) row.splice(after, 0, ...new Array(count).fill(''));
+    for (const row of this.data) if (row && row.length > after) row.splice(after, 0, ...Array.from({ length: count }, () => ''));
     this.maxCols += count;
     return this;
   }
@@ -492,6 +523,42 @@ class SheetMock {
       rows.push(obj);
     }
     return rows;
+  }
+}
+
+class ProtectionMock {
+  constructor(sheet) {
+    this.sheet = sheet;
+    this.description = '';
+    this.editors = [{ getEmail: () => 'editor@example.com' }];
+    this.domainEdit = true;
+  }
+  setDescription(text) {
+    this.description = text;
+    return this;
+  }
+  getDescription() {
+    return this.description;
+  }
+  addEditor(user) {
+    const email = typeof user === 'string' ? user : user.getEmail();
+    if (!this.editors.some((e) => e.getEmail() === email)) this.editors.push({ getEmail: () => email });
+    return this;
+  }
+  getEditors() {
+    return [...this.editors];
+  }
+  removeEditors(users) {
+    const emails = users.map((u) => (typeof u === 'string' ? u : u.getEmail()));
+    this.editors = this.editors.filter((e) => !emails.includes(e.getEmail()));
+    return this;
+  }
+  canDomainEdit() {
+    return this.domainEdit;
+  }
+  setDomainEdit(flag) {
+    this.domainEdit = Boolean(flag);
+    return this;
   }
 }
 
@@ -561,6 +628,13 @@ class FileMock {
   getBlob() {
     return new BlobMock(this.bytes, this.mime, this.name);
   }
+  getParents() {
+    return iterator(this.parent ? [this.parent] : []);
+  }
+  moveTo(folder) {
+    this.parent = folder;
+    return this;
+  }
   isTrashed() {
     return this.trashed;
   }
@@ -569,6 +643,7 @@ class FileMock {
     return this;
   }
   makeCopy(name, folder) {
+    if (this.drive.runtime.faults.consume('drive')) throw new Error('Service Drive failed (emulated fault).');
     const copy = new FileMock(this.drive, this.drive.newId(), name, folder, null);
     copy.mime = this.mime;
     this.drive.items.set(copy.id, copy);
@@ -600,6 +675,9 @@ class FolderMock {
   setTrashed(flag) {
     this.trashed = Boolean(flag);
     return this;
+  }
+  getParents() {
+    return iterator(this.parent ? [this.parent] : []);
   }
   getFoldersByName(name) {
     return iterator([...this.drive.items.values()].filter((x) => x instanceof FolderMock && x.parent === this && x.name === name));
@@ -682,7 +760,7 @@ class Faults {
  */
 export function createGasRuntime(options) {
   const runtime = { faults: new Faults(), logs: [] };
-  const properties = { ...(options.properties ?? {}) };
+  const properties = { ...options.properties };
   const cache = new CacheMock();
   const lockState = { locked: false };
   const drive = new DriveMock(runtime);
@@ -699,6 +777,10 @@ export function createGasRuntime(options) {
   };
 
   const triggers = [];
+  // MailApp giả lập: không gửi thật — lưu thư vào runtime.mail (test / chạy thử local đọc mã OTP, thông báo).
+  // options.mailQuota: hạn mức còn lại trong ngày (mặc định 100 như Gmail thường); faults 'mail' → MailApp ném lỗi.
+  const mail = [];
+  const mailState = { quota: options.mailQuota ?? 100 };
   // Giao diện Sheet giả lập (menu): options.ui.responses = các giá trị lần lượt nhập vào hộp thoại prompt
   // (null = bấm Hủy). Không truyền options.ui = giống chạy trong trình soạn thảo (getUi() báo lỗi).
   const uiState = options.ui ? { responses: [...(options.ui.responses ?? [])], alerts: [], prompts: [] } : null;
@@ -725,15 +807,22 @@ export function createGasRuntime(options) {
     PropertiesService: { getScriptProperties: () => new PropertiesMock(properties) },
     CacheService: { getScriptCache: () => cache },
     LockService: { getScriptLock: () => new LockMock(lockState) },
-    Session: { getScriptTimeZone: () => 'Asia/Ho_Chi_Minh' },
+    Session: {
+      getScriptTimeZone: () => 'Asia/Ho_Chi_Minh',
+      getEffectiveUser: () => ({ getEmail: () => 'owner@example.com' }),
+    },
     SpreadsheetApp: {
+      ProtectionType: { SHEET: 'SHEET', RANGE: 'RANGE' },
       openById(id) {
         if (id !== spreadsheet.id) throw new Error(`Unexpected error while getting the method or property openById on object SpreadsheetApp.`);
         return spreadsheet;
       },
       getActiveSpreadsheet: () => (options.bound === false ? null : spreadsheet),
       getActive: () => (options.bound === false ? null : spreadsheet),
-      flush() {},
+      // faults 'flush' → lỗi khi đẩy dữ liệu đã ghi (như Sheets lỗi lúc lưu) — kiểm tra lỗi không bị coi là thành công.
+      flush() {
+        if (runtime.faults.consume('flush')) throw new Error('Service Spreadsheets failed while flushing (emulated fault).');
+      },
       getUi() {
         if (fakeUi) return fakeUi;
         throw new Error('Cannot call SpreadsheetApp.getUi() from this context.');
@@ -756,6 +845,30 @@ export function createGasRuntime(options) {
             return this;
           },
         };
+      },
+    },
+    MailApp: {
+      getRemainingDailyQuota: () => mailState.quota,
+      sendEmail(message) {
+        if (!message || typeof message !== 'object') throw new Error('MailApp.sendEmail (emulator): chỉ hỗ trợ dạng sendEmail({ to, subject, … })');
+        if (runtime.faults.consume('mail')) throw new Error('Service invoked too many times for one day: email.');
+        const recipients = String(message.to ?? '')
+          .split(',')
+          .map((s) => s.trim())
+          .filter(Boolean);
+        if (!recipients.length) throw new Error('Invalid argument: recipient');
+        if (mailState.quota < recipients.length) throw new Error('Service invoked too many times for one day: email.');
+        mailState.quota -= recipients.length;
+        const entry = {
+          to: recipients.join(', '),
+          subject: String(message.subject ?? ''),
+          body: String(message.body ?? ''),
+          htmlBody: String(message.htmlBody ?? ''),
+          name: String(message.name ?? ''),
+          at: new Date().toISOString(),
+        };
+        mail.push(entry);
+        if (options.onMail) options.onMail(entry);
       },
     },
     MimeType: { PDF: 'application/pdf', HTML: 'text/html', PNG: 'image/png', JPEG: 'image/jpeg', JSON: 'application/json', PLAIN_TEXT: 'text/plain' },
@@ -825,6 +938,10 @@ export function createGasRuntime(options) {
     logs: runtime.logs,
     faults: runtime.faults,
     ui: uiState,
+    /** Thư MailApp đã "gửi" (không gửi thật) — mới nhất ở cuối. */
+    mail,
+    mailState,
+    triggers,
     get lastPdfHtml() {
       return BlobMock.lastPdfHtml;
     },
