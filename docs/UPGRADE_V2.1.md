@@ -121,6 +121,8 @@ Theo thứ tự ưu tiên — chi tiết lý do trong [AUDIT_V2.1.md](AUDIT_V2.1
 | 14:33 | Worker: trang Tồn kho & mẫu mới (Tồn đầu kỳ / Đã bàn giao / Khả dụng) | Phiên bản Worker `e7729847…` |
 | 15:0x | **Tồn đầu kỳ đồng phục** theo file 17/11 (đã xác nhận): đổi tên mẫu Áo bảo hộ → **Áo Công Trình** (FREE 29); tạo **Áo KD** (L 0 · XL 16 · XXL 9), **Áo nam** (FREE 14), **Áo tái sử dụng** (FREE, đã qua sử dụng 35); 6 mẫu theo danh sách chính sách chưa từng có hàng → ngừng dùng | Tồn đầu kỳ 103 · đã bàn giao 0 · khả dụng 103 |
 | 15:30 | Apps Script **Phiên bản 5** + Worker: chỉ cảnh báo hết hàng mới ở mẫu từng có hàng mới (mẫu chỉ có hàng đã qua sử dụng không báo) | Cảnh báo còn đúng 1: Áo KD · L |
+| 15:45 | Worker: logo chính thức Diệu Tướng Am (từ dieutuongam.com) | Phiên bản Worker `8b7117bc…` |
+| 17:04 | Apps Script **Phiên bản 6** + Worker `be7a8ed5…`: nhóm định mức VPP mặc định; gắn 8 phòng ban (Showroom HCM / HN, Hỗ trợ - Giao nhận → Phòng kinh doanh; Kế toán - HCNS, MKT, Thiết kế - QLDA, Thu mua → Văn phòng), mặc định = Văn phòng | 47/47 nhân viên có định mức; 0 phòng ban chưa gắn |
 
 Quay lui: Worker về bản trước (`2ae7ceed…` = v2.0, `3da5b300…` = v2.1 trước sửa giao diện, `49a29fbd…` = trước thống nhất đồng
 phục) ở *Deployments*; Apps Script chọn **Phiên bản 2** (v2.0) hoặc **3** (v2.1 trước thống nhất đồng phục) trong *Quản lý các bản

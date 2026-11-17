@@ -63,6 +63,11 @@ Không bao giờ xóa hay sửa dòng biến động; sai sót xử lý bằng k
   - *Tự khớp theo tên*: tên phòng ban trùng tên phạm vi (bỏ chữ “phòng”, không phân biệt dấu / hoa thường) — “Kinh doanh” ↔ “PHÒNG KINH DOANH”.
   - *Gắn thủ công*: lưu ở `CAU_HINH` khóa `VPP_SCOPE:<PHÒNG BAN>` = mã phạm vi.
   - *Không áp dụng định mức*: giá trị `NONE` (không còn bị liệt kê là “chưa gắn” ở *Dữ liệu cần kiểm tra*).
+  - **Nhóm mặc định** (đầu phần gắn phòng ban, khóa `CAU_HINH.VPP_SCOPE_DEFAULT`): phòng ban chưa gắn / không khớp tên và nhân viên
+    chưa có phòng ban (kể cả phòng ban mới sau này) theo nhóm này. Thứ tự: gắn thủ công → tự khớp tên → mặc định; `NONE` không nhận mặc định.
+  - Các phòng ban **cùng một nhóm dùng chung định mức tháng** của nhóm (định mức được soạn theo khối: *Phòng kinh doanh* = Showroom +
+    Hỗ trợ - Giao nhận + Kho; *Văn phòng* = các phòng văn phòng). Production 17/11/2026: Showroom HCM, Showroom HN, Bộ phận Hỗ trợ -
+    Giao nhận → Phòng kinh doanh; Kế toán - HCNS, MKT, Thiết kế - QLDA, Thu mua → Văn phòng; nhóm mặc định = Văn phòng (47/47 nhân viên có định mức).
 - Định mức của sản phẩm **đã ngừng dùng / đã ghép** không còn tính là “đang áp dụng” (trang *Định mức* ghi rõ, không cộng vào tổng).
 - Phạm vi được **chốt trên phiếu lúc tạo** (`BAN_GIAO.vpp_scope_id`) — đổi cách gắn phòng ban không làm lệch số đã cấp của phiếu cũ.
 - Mức đã dùng trong tháng (giờ Việt Nam) = phiếu đã ký trong tháng (**đã cấp**) + phiếu đang chờ ký (**đang chờ**).
