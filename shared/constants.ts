@@ -3,7 +3,7 @@
 
 export const APP_ID = 'dta-handover';
 /** Phiên bản ứng dụng — trùng APP.VERSION trong apps-script/Config.gs (trang Cài đặt cảnh báo nếu lệch). */
-export const APP_VERSION = '2.0.0';
+export const APP_VERSION = '2.1.0';
 export const APP_TITLE = 'HỆ THỐNG BÀN GIAO NỘI BỘ – DIỆU TƯỚNG AM';
 export const ORG_NAME = 'DIỆU TƯỚNG AM';
 export const TIMEZONE = 'Asia/Ho_Chi_Minh';
@@ -26,11 +26,12 @@ export function isEditableStatus(status: string): boolean {
 }
 
 /** Loại phiếu bàn giao — bước đầu tiên khi admin tạo phiếu. */
-export const HANDOVER_TYPES = ['ASSET', 'OFFICE_SUPPLY', 'ACCOUNT', 'DOCUMENT', 'WORK', 'OTHER'] as const;
+export const HANDOVER_TYPES = ['ASSET', 'UNIFORM', 'OFFICE_SUPPLY', 'ACCOUNT', 'DOCUMENT', 'WORK', 'OTHER'] as const;
 export type HandoverType = (typeof HANDOVER_TYPES)[number];
 
 export const HANDOVER_TYPE_LABELS: Record<HandoverType, string> = {
   ASSET: 'Thiết bị / tài sản',
+  UNIFORM: 'Đồng phục',
   OFFICE_SUPPLY: 'Văn phòng phẩm',
   ACCOUNT: 'Tài khoản',
   DOCUMENT: 'Hồ sơ',
@@ -40,12 +41,20 @@ export const HANDOVER_TYPE_LABELS: Record<HandoverType, string> = {
 
 export const HANDOVER_TYPE_HINTS: Record<HandoverType, string> = {
   ASSET: 'Laptop, máy tính, điện thoại, thẻ, tài sản có mã / serial',
+  UNIFORM: 'Áo đồng phục, áo bảo hộ — chọn mẫu, size từ kho; cấp phát theo tiêu chuẩn năm hoặc cho mượn có hạn trả',
   OFFICE_SUPPLY: 'Chọn sản phẩm từ kho — tự giữ chỗ và trừ tồn khi người nhận ký',
   ACCOUNT: 'Tài khoản email, phần mềm, hệ thống (không ghi mật khẩu)',
   DOCUMENT: 'Hồ sơ, giấy tờ, chứng từ, nơi lưu',
   WORK: 'Công việc, dự án, tình trạng, hạn hoàn thành, tài liệu',
   OTHER: 'Nội dung khác hoặc gộp nhiều loại trong một phiếu',
 };
+
+/** Loại phiếu chọn mặt hàng từ kho (không nhập tay nội dung): giữ chỗ khi tạo, xuất kho khi người nhận ký. */
+export const STOCK_HANDOVER_TYPES: readonly HandoverType[] = ['OFFICE_SUPPLY', 'UNIFORM'];
+
+export function isStockHandoverType(type: string): boolean {
+  return (STOCK_HANDOVER_TYPES as readonly string[]).includes(type);
+}
 
 /** Loại nội dung dành riêng cho văn phòng phẩm (chỉ dùng trong phiếu OFFICE_SUPPLY). */
 export const VPP_CATEGORY_CODE = 'VAN_PHONG_PHAM';
@@ -103,6 +112,10 @@ export const LIMITS = {
   proposalItemText: 500,
   stockReason: 500,
   url: 500,
+  uniformModelName: 120,
+  uniformAppliesTo: 200,
+  /** Tiêu chuẩn cấp phát tối đa / năm của một quy tắc. */
+  maxYearlyQuota: 100,
   /** Dung lượng tối đa ảnh chữ ký PNG (bytes) sau khi decode. */
   signatureMaxBytes: 300 * 1024,
   signatureMaxWidth: 1200,

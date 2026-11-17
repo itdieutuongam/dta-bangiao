@@ -1,4 +1,4 @@
-import { Boxes, ChevronRight, FilePlus2, MailWarning as MailWarningIcon, MessageSquareWarning, ShoppingCart } from 'lucide-react';
+import { Boxes, ChevronRight, FilePlus2, MailWarning as MailWarningIcon, MessageSquareText, MessageSquareWarning, Shirt, ShoppingCart } from 'lucide-react';
 import { useEffect } from 'react';
 import { Link } from 'react-router';
 import { HANDOVER_TYPE_LABELS, NOTIFY_EVENT_LABELS, STATUS_LABELS, type HandoverStatus } from '../../../shared/constants';
@@ -48,6 +48,9 @@ export default function AdminOverviewPage() {
             <ButtonLink to="/admin/ban-giao/tao-moi?loai=OFFICE_SUPPLY" icon={<Boxes className="size-4" aria-hidden="true" />}>
               Phiếu văn phòng phẩm
             </ButtonLink>
+            <ButtonLink to="/admin/ban-giao/tao-moi?loai=UNIFORM" icon={<Shirt className="size-4" aria-hidden="true" />}>
+              Phiếu đồng phục
+            </ButtonLink>
           </>
         }
       />
@@ -96,14 +99,38 @@ function MailWarning({ title, error, impact, critical }: { title: string; error:
   );
 }
 
+/** Mã xác nhận khi ký chỉ bảo vệ người có email: còn nhân viên chưa có email → ký không cần mã (người cầm link ký thay được). */
+function OtpCoverageWarning({ notify }: { notify: AdminOverview['notify'] | undefined }) {
+  const coverage = notify?.emailCoverage;
+  if (!notify || !coverage || !coverage.active) return null;
+  const missing = coverage.active - coverage.withEmail;
+  if (notify.otpMode !== 'OFF' && missing <= 0) return null;
+  return (
+    <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900" role="status">
+      <p className="flex items-center gap-2 font-semibold">
+        <MailWarningIcon className="size-4 shrink-0" aria-hidden="true" />
+        {notify.otpMode === 'OFF'
+          ? 'Đang TẮT mã xác nhận khi ký (CONFIRM_OTP = OFF)'
+          : `${missing}/${coverage.active} nhân viên đang làm chưa có email — ${notify.otpMode === 'REQUIRED' ? 'chưa ký được biên bản' : 'ký không cần mã xác nhận'}`}
+      </p>
+      <p className="mt-1 text-xs">
+        {notify.otpMode === 'REQUIRED'
+          ? 'Bổ sung email công ty trong sheet NHAN_VIEN rồi bấm “Làm mới dữ liệu”.'
+          : 'Người nhận không có email ký chỉ bằng link — ai cầm link (kể cả người lập phiếu) cũng ký thay được. Bổ sung email công ty cho mọi nhân viên trong sheet NHAN_VIEN, sau đó đặt CAU_HINH.CONFIRM_OTP = REQUIRED.'}
+      </p>
+    </div>
+  );
+}
+
 /** Lỗi gửi email — hai loại tách riêng: gửi được mã OTP không che mất lỗi email thông báo và ngược lại. */
 function MailWarnings({ notify }: { notify: AdminOverview['notify'] | undefined }) {
   // Máy chủ Apps Script bản cũ chưa tách hai loại → không có otp / notify.
   const otpError = notify?.otp?.lastError ?? null;
   const notifyError = notify?.notify?.lastError ?? null;
-  if (!otpError && !notifyError) return null;
+  if (!otpError && !notifyError) return <OtpCoverageWarning notify={notify} />;
   return (
     <div className="space-y-3">
+      <OtpCoverageWarning notify={notify} />
       {otpError && (
         <MailWarning
           critical
@@ -180,6 +207,11 @@ function OverviewBody({ data }: { data: AdminOverview }) {
         <VppAlertsCard data={data} />
       </div>
 
+      <div className="grid gap-4 lg:grid-cols-2">
+        <SignedWithCommentCard items={data.signedWithComment ?? []} />
+        <UniformAlertsCard data={data} />
+      </div>
+
       <section className="card overflow-hidden" aria-labelledby="recent-title">
         <div className="flex items-center justify-between gap-2 border-b border-stone-200 px-4 py-3">
           <h2 id="recent-title" className="text-sm font-semibold text-stone-800">
@@ -219,6 +251,84 @@ function OverviewBody({ data }: { data: AdminOverview }) {
         )}
       </section>
     </>
+  );
+}
+
+/** Biên bản đã ký nhưng người nhận ghi chú kèm (30 ngày) — ghi chú có thể trái với nội dung đã ký, nên đọc lại. */
+function SignedWithCommentCard({ items }: { items: AdminOverview['signedWithComment'] }) {
+  return (
+    <section className="card p-4 sm:p-5" aria-labelledby="signed-comment-title">
+      <h2 id="signed-comment-title" className="section-title flex items-center gap-2">
+        <MessageSquareText className="size-5 text-sky-600" aria-hidden="true" />
+        Đã ký kèm ghi chú (30 ngày)
+        {items.length > 0 && <span className="rounded-full bg-sky-100 px-2 py-0.5 text-xs font-bold text-sky-800">{items.length}</span>}
+      </h2>
+      {items.length === 0 ? (
+        <p className="mt-3 text-sm text-stone-500">Không có biên bản nào được ký kèm ghi chú.</p>
+      ) : (
+        <ul className="mt-3 divide-y divide-stone-100">
+          {items.map((r) => (
+            <li key={r.id}>
+              <Link to={`/admin/ban-giao/${r.id}`} className="flex items-start justify-between gap-3 py-2.5 hover:bg-stone-50">
+                <span className="min-w-0">
+                  <span className="block text-sm font-semibold text-stone-900">
+                    <span className="font-mono">{r.code}</span> · {r.receiverName}
+                  </span>
+                  <span className="mt-0.5 line-clamp-2 block text-sm break-words text-stone-600">“{r.receiverComment}”</span>
+                  <span className="block text-xs text-stone-500">Ký {formatDateTime(r.confirmedAt)}</span>
+                </span>
+                <ChevronRight className="mt-1 size-4 shrink-0 text-stone-400" aria-hidden="true" />
+              </Link>
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
+  );
+}
+
+function UniformAlertsCard({ data }: { data: AdminOverview }) {
+  const u = data.uniform;
+  const rows: Array<{ label: string; value: number; to: string; tone: string }> = u
+    ? [
+        { label: 'Size hết hàng (hàng mới)', value: u.outOfStockSkus, to: '/admin/dong-phuc/ton-kho', tone: 'text-red-800' },
+        { label: 'Size sắp hết', value: u.lowStockSkus, to: '/admin/dong-phuc/ton-kho', tone: 'text-orange-800' },
+        { label: 'Đồ mượn quá hạn trả', value: u.loansOverdue, to: '/admin/dong-phuc/muon-tra?status=overdue', tone: 'text-red-800' },
+        { label: 'Phiếu đồng phục chờ ký', value: u.pendingHandovers, to: '/admin/ban-giao?handoverType=UNIFORM&status=PENDING', tone: 'text-amber-800' },
+        { label: 'Nhân viên chưa có size', value: u.employeesMissingSize, to: '/admin/dong-phuc/nhan-vien', tone: 'text-amber-800' },
+      ]
+    : [];
+  return (
+    <section className="card p-4 sm:p-5" aria-labelledby="uniform-alert-title">
+      <h2 id="uniform-alert-title" className="section-title flex items-center gap-2">
+        <Shirt className="size-5 text-brand-600" aria-hidden="true" />
+        Đồng phục
+      </h2>
+      {!u ? (
+        <p className="mt-3 rounded-lg bg-amber-50 px-3 py-2.5 text-sm text-amber-900">
+          Module đồng phục chưa sẵn sàng — chủ Google Sheet chạy menu “DTA Handover → Nâng cấp module Đồng phục (v3)” rồi “Khởi tạo danh mục đồng phục”.{' '}
+          <Link to="/admin/cai-dat" className="font-semibold underline">
+            Xem trạng thái hệ thống
+          </Link>
+        </p>
+      ) : (
+        <ul className="mt-3 space-y-2 text-sm">
+          {rows.map((r) => (
+            <li key={r.label}>
+              <Link to={r.to} className={cn('flex items-center justify-between gap-2 font-semibold hover:underline', r.value ? r.tone : 'text-stone-500')}>
+                <span>{r.label}</span>
+                <span className="tabular-nums">{r.value}</span>
+              </Link>
+            </li>
+          ))}
+          <li className="border-t border-stone-100 pt-2">
+            <Link to="/admin/dong-phuc" className="font-semibold text-brand-700 hover:underline">
+              Mở trang Đồng phục →
+            </Link>
+          </li>
+        </ul>
+      )}
+    </section>
   );
 }
 

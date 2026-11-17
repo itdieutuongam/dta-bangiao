@@ -17,7 +17,12 @@ import {
   skipReviewSchema,
   stockAdjustSchema,
   stockInSchema,
+  stockIssueSchema,
+  stockReceiptSchema,
   syncStockSchema,
+  voucherListQuerySchema,
+  vppImportApplySchema,
+  vppImportSchema,
 } from '../../shared/schemas';
 import { requireAdmin } from '../auth/guards';
 import { callGas } from '../services/gas';
@@ -121,6 +126,57 @@ export async function vppStockAdjustHandler(c: RequestContext): Promise<Response
   const input = await readBody(c, stockAdjustSchema);
   const data = await callGas(c.env, 'vppStockAdjust', { ...input, actor }, WRITE);
   logEvent('info', c, 'vpp.stock_adjust', { productId: input.productId, counted: input.countedQuantity, by: actor.id });
+  return ok(data);
+}
+
+// ---------------------------------------------------------------- Phiếu nhập / xuất kho nhiều mặt hàng (v2.1)
+
+/** POST /api/admin/vpp/stock/receipt — phiếu nhập kho (nhiều mặt hàng, đơn giá, nhà cung cấp). */
+export async function vppStockReceiptHandler(c: RequestContext): Promise<Response> {
+  const { actor } = await requireAdmin(c);
+  const input = await readBody(c, stockReceiptSchema, 256 * 1024);
+  const data = await callGas<{ duplicate?: boolean }>(c.env, 'vppStockReceipt', { ...input, actor }, { ...WRITE, timeoutMs: 120_000 });
+  logEvent('info', c, 'vpp.stock_receipt', { lines: input.lines.length, duplicate: Boolean(data.duplicate), by: actor.id });
+  return ok(data, data.duplicate ? 200 : 201);
+}
+
+/** POST /api/admin/vpp/stock/issue — phiếu xuất kho trực tiếp cho phòng ban / người nhận (chỉ phần khả dụng). */
+export async function vppStockIssueHandler(c: RequestContext): Promise<Response> {
+  const { actor } = await requireAdmin(c);
+  const input = await readBody(c, stockIssueSchema, 256 * 1024);
+  const data = await callGas<{ duplicate?: boolean }>(c.env, 'vppStockIssue', { ...input, actor }, { ...WRITE, timeoutMs: 120_000 });
+  logEvent('info', c, 'vpp.stock_issue', { lines: input.lines.length, duplicate: Boolean(data.duplicate), by: actor.id });
+  return ok(data, data.duplicate ? 200 : 201);
+}
+
+/** GET /api/admin/vpp/vouchers — phiếu nhập / xuất + tổng xuất theo phòng ban (theo bộ lọc). */
+export async function vppVouchersHandler(c: RequestContext): Promise<Response> {
+  const { actor } = await requireAdmin(c);
+  const filters = voucherListQuerySchema.parse(query(c));
+  return ok(await callGas(c.env, 'vppListVouchers', { ...filters, actor }, READ));
+}
+
+export async function vppVoucherDetailHandler(c: RequestContext): Promise<Response> {
+  const { actor } = await requireAdmin(c);
+  const id = requireParamId(c, 'id', 'Không tìm thấy phiếu.');
+  return ok(await callGas(c.env, 'vppGetVoucher', { id, actor }, READ));
+}
+
+// ---------------------------------------------------------------- Cập nhật danh mục + tồn kho từ Excel (v2.1)
+
+/** POST /api/admin/vpp/import/preview — xem trước (không ghi): thêm / cập nhật / đổi tồn / gợi ý ghép. */
+export async function vppImportPreviewHandler(c: RequestContext): Promise<Response> {
+  const { actor } = await requireAdmin(c);
+  const input = await readBody(c, vppImportSchema, 1024 * 1024);
+  return ok(await callGas(c.env, 'vppImportPlan', { ...input, actor }, { scope: 'admin', timeoutMs: 120_000, retries: 1 }));
+}
+
+/** POST /api/admin/vpp/import/apply — áp dụng (trong khóa, ghi theo lô; gửi lại cùng mã thao tác không làm 2 lần). */
+export async function vppImportApplyHandler(c: RequestContext): Promise<Response> {
+  const { actor } = await requireAdmin(c);
+  const input = await readBody(c, vppImportApplySchema, 1024 * 1024);
+  const data = await callGas<{ result: unknown; duplicate?: boolean }>(c.env, 'vppImportApply', { ...input, actor }, { scope: 'admin', timeoutMs: 300_000 });
+  logEvent('info', c, 'vpp.import_applied', { rows: input.rows.length, duplicate: Boolean(data.duplicate), by: actor.id });
   return ok(data);
 }
 

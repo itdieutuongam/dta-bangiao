@@ -195,9 +195,11 @@ export function SignaturePad({ ref, onChange, invalid, describedBy, disabled }: 
 
   function toPoint(event: { clientX: number; clientY: number }): Point {
     const rect = canvasRef.current!.getBoundingClientRect();
+    // Giữ nét trong khung: kéo ngón tay ra ngoài (pointer capture vẫn nhận) không tạo nét vô hình làm ảnh chữ ký xuất ra bị thu nhỏ / lệch.
+    const clamp = (v: number, max: number) => (Number.isFinite(v) ? Math.min(max, Math.max(0, v)) : 0);
     return {
-      x: ((event.clientX - rect.left) / rect.width) * LOGICAL_WIDTH,
-      y: ((event.clientY - rect.top) / rect.height) * LOGICAL_HEIGHT,
+      x: clamp(((event.clientX - rect.left) / rect.width) * LOGICAL_WIDTH, LOGICAL_WIDTH),
+      y: clamp(((event.clientY - rect.top) / rect.height) * LOGICAL_HEIGHT, LOGICAL_HEIGHT),
     };
   }
 

@@ -21,10 +21,10 @@
 
 var APP = {
   NAME: 'dta-handover',
-  VERSION: '2.0.0',
+  VERSION: '2.1.0',
   // Phiên bản cấu trúc dữ liệu. Code cần cột/sheet mới chỉ chạy khi Script Property SCHEMA_VERSION >= giá trị này
-  // (do setupDatabase() / upgradeOfficeSupplyModule() đặt sau khi nâng cấp xong).
-  SCHEMA_VERSION: 2,
+  // (do setupDatabase() / upgradeUniformModule() đặt sau khi nâng cấp xong). v3 = module Đồng phục.
+  SCHEMA_VERSION: 3,
   TIMEZONE: 'Asia/Ho_Chi_Minh',
   // Việt Nam không áp dụng giờ mùa hè → offset cố định.
   TZ_OFFSET: '+07:00',
@@ -47,6 +47,13 @@ var APP = {
   DRIVE_ROOT_NAME: 'DTA_HANDOVER',
   SAMPLE_EMPLOYEE_PREFIX: 'DEMO-',
   VPP_PRODUCT_CODE_PREFIX: 'VPP-',
+  // Phiếu nhập kho NK-YYYYMMDD-NNNN / phiếu xuất kho XK-YYYYMMDD-NNNN (văn phòng phẩm, v2.1).
+  VPP_RECEIPT_CODE_PREFIX: 'NK',
+  VPP_ISSUE_CODE_PREFIX: 'XK',
+  // Mã mẫu đồng phục DP-001… ; mặt hàng = <mã mẫu>-<size>[-CU] (CU = đã qua sử dụng).
+  DP_MODEL_CODE_PREFIX: 'DP-',
+  // Số ngày trước hạn trả được coi là "sắp đến hạn" (trang Mượn / Trả).
+  DP_DUE_SOON_DAYS: 7,
   // Mã OTP khi người nhận ký (gửi qua email): hiệu lực, số lần nhập sai, chống gửi dồn dập
   // (gửi lại sau 60 giây; tối đa 3 lần / 15 phút; tối đa 10 lần / phiếu, đếm lại sau 6 giờ không gửi — giới hạn của CacheService).
   OTP_TTL_SECONDS: 10 * 60,
@@ -83,7 +90,13 @@ var PROP = {
   // Ngày (YYYY-MM-DD) đã gửi email tổng hợp — nhiều trigger (mỗi người cài một cái) vẫn chỉ gửi một email mỗi ngày.
   DIGEST_SENT_DAY: 'DAILY_DIGEST_SENT_DAY',
   // Lần sao lưu tự động gần nhất (ISO) — tương tự, nhiều trigger sao lưu vẫn chỉ tạo một bản mỗi tuần.
-  LAST_SCHEDULED_BACKUP: 'LAST_SCHEDULED_BACKUP_AT'
+  LAST_SCHEDULED_BACKUP: 'LAST_SCHEDULED_BACKUP_AT',
+  // Đồng phục: mặt hàng đang ghi kho dở (như VPP_STOCK_DIRTY) + bộ đếm mã mẫu DP-001…
+  DP_STOCK_DIRTY: 'DP_STOCK_DIRTY',
+  DP_MODEL_SEQ: 'DP_MODEL_SEQ',
+  // Bộ đếm mã phiếu nhập / xuất kho VPP theo ngày ("YYYYMMDD:n").
+  VPP_RECEIPT_SEQ: 'VPP_RECEIPT_SEQ',
+  VPP_ISSUE_SEQ: 'VPP_ISSUE_SEQ'
 };
 
 var SHEETS = {
@@ -98,7 +111,14 @@ var SHEETS = {
   VPP_STOCK: 'VPP_TON_KHO',
   VPP_MOVEMENTS: 'VPP_BIEN_DONG_KHO',
   VPP_PROPOSALS: 'VPP_DE_XUAT',
-  VPP_PROPOSAL_ITEMS: 'VPP_DE_XUAT_CHI_TIET'
+  VPP_PROPOSAL_ITEMS: 'VPP_DE_XUAT_CHI_TIET',
+  VPP_VOUCHERS: 'VPP_PHIEU_KHO',
+  DP_MODELS: 'DP_MAU',
+  DP_SKUS: 'DP_BIEN_THE',
+  DP_STOCK: 'DP_TON_KHO',
+  DP_MOVEMENTS: 'DP_BIEN_DONG_KHO',
+  DP_NORMS: 'DP_DINH_MUC',
+  DP_RETURNS: 'DP_THU_HOI'
 };
 
 /**
@@ -108,7 +128,9 @@ var SHEETS = {
  */
 var HEADERS = {
   NHAN_VIEN: [
-    'employee_id', 'full_name', 'department', 'position', 'email', 'phone', 'status', 'created_at', 'updated_at'
+    'employee_id', 'full_name', 'department', 'position', 'email', 'phone', 'status', 'created_at', 'updated_at',
+    // Cột bổ sung v3 (đồng phục): giới tính (NAM / NỮ) + size thường dùng — HCNS điền thẳng trên Sheet hoặc qua trang quản trị
+    'gender', 'uniform_size'
   ],
   BAN_GIAO: [
     'handover_id', 'handover_code', 'sender_name', 'sender_employee_id', 'receiver_employee_id', 'receiver_name',
@@ -128,7 +150,9 @@ var HEADERS = {
     'item_id', 'handover_id', 'item_order', 'category', 'item_name', 'asset_code', 'serial_number', 'model',
     'quantity', 'condition', 'description', 'work_status', 'deadline', 'document_url', 'note', 'created_at',
     // Cột bổ sung v2: văn phòng phẩm + thay thế mềm khi sửa phiếu (không xóa dòng) + phiên bản nội dung
-    'unit', 'product_id', 'affects_inventory', 'over_norm_reason', 'superseded_at', 'revision_id'
+    'unit', 'product_id', 'affects_inventory', 'over_norm_reason', 'superseded_at', 'revision_id',
+    // Cột bổ sung v3 (đồng phục): size + hình thức (CAP_PHAT / CHO_MUON; hạn trả ở cột deadline)
+    'size', 'issue_kind'
   ],
   LOAI_BAN_GIAO: ['code', 'name', 'form_fields', 'hint', 'sort_order', 'status', 'created_at', 'updated_at', 'handover_type'],
   LICH_SU: [
@@ -150,7 +174,9 @@ var HEADERS = {
   ],
   VPP_BIEN_DONG_KHO: [
     'movement_id', 'product_id', 'movement_type', 'quantity', 'on_hand_before', 'on_hand_after', 'reserved_before',
-    'reserved_after', 'handover_id', 'proposal_id', 'operation_id', 'actor_id', 'actor_name', 'reason', 'created_at'
+    'reserved_after', 'handover_id', 'proposal_id', 'operation_id', 'actor_id', 'actor_name', 'reason', 'created_at',
+    // v3: dòng của phiếu nhập / xuất kho (VPP_PHIEU_KHO) — đơn giá nhập, phòng ban nhận khi xuất.
+    'voucher_id', 'unit_price', 'department'
   ],
   VPP_DE_XUAT: [
     'proposal_id', 'proposal_code', 'requester_employee_id', 'requester_name', 'department', 'status', 'reason',
@@ -162,6 +188,39 @@ var HEADERS = {
     'requested_quantity', 'norm_quantity', 'approved_quantity', 'reference_price', 'approved_price', 'reason', 'note',
     'product_approval_status',
     'reference_url', 'received_quantity', 'item_order'
+  ],
+  // Phiếu nhập kho (IN) / xuất kho trực tiếp (OUT) văn phòng phẩm (v3). Dòng hàng = các dòng VPP_BIEN_DONG_KHO cùng voucher_id.
+  VPP_PHIEU_KHO: [
+    'voucher_id', 'voucher_code', 'voucher_type', 'voucher_date', 'reason_type', 'department', 'receiver_employee_id',
+    'receiver_name', 'supplier', 'invoice_no', 'note', 'line_count', 'total_quantity', 'total_amount', 'actor_id', 'actor_name',
+    'client_request_id', 'created_at'
+  ],
+  // ---- Đồng phục (v3) ----
+  // Mẫu: sizes = "S,M,L,XL,XXL"; counts_toward_quota = tính vào tiêu chuẩn cấp phát năm.
+  DP_MAU: [
+    'model_id', 'model_code', 'model_name', 'kind', 'gender', 'sizes', 'unit', 'reference_price', 'counts_toward_quota',
+    'minimum_stock', 'applies_to', 'active', 'note', 'created_at', 'updated_at'
+  ],
+  // Mặt hàng (biến thể) = mẫu × size × tình trạng (NEW / USED). product_id là mã dùng trong kho / phiếu / sổ biến động.
+  DP_BIEN_THE: ['product_id', 'sku_code', 'model_id', 'size', 'condition', 'active', 'created_at', 'updated_at'],
+  // Tồn kho & sổ biến động: cùng cấu trúc với VPP_TON_KHO / VPP_BIEN_DONG_KHO (dùng chung bộ máy kho của Vpp.gs).
+  DP_TON_KHO: [
+    'product_id', 'on_hand', 'reserved', 'minimum_stock', 'raw_initial_value', 'needs_review', 'updated_at', 'updated_by'
+  ],
+  DP_BIEN_DONG_KHO: [
+    'movement_id', 'product_id', 'movement_type', 'quantity', 'on_hand_before', 'on_hand_after', 'reserved_before',
+    'reserved_after', 'handover_id', 'operation_id', 'actor_id', 'actor_name', 'reason', 'created_at', 'employee_id', 'return_id'
+  ],
+  // Tiêu chuẩn cấp phát / năm: nhóm × mẫu ('' = tổng mọi mẫu tính tiêu chuẩn) × giới tính ('' = cả hai).
+  DP_DINH_MUC: [
+    'norm_id', 'scope_id', 'scope_name', 'model_id', 'gender', 'yearly_quantity', 'note', 'effective_from', 'effective_to',
+    'active', 'created_at', 'updated_at'
+  ],
+  // Trả / thu hồi đồng phục của một dòng phiếu đã ký (RESTOCK: nhập lại kho · DAMAGED · LOST).
+  DP_THU_HOI: [
+    'return_id', 'handover_id', 'item_id', 'employee_id', 'employee_name', 'department', 'product_id', 'model_id', 'size',
+    'quantity', 'result', 'restock_product_id', 'restock_condition', 'reason', 'note', 'actor_id', 'actor_name',
+    'client_request_id', 'created_at'
   ]
 };
 
@@ -178,8 +237,25 @@ var ROW_ID_COLUMNS = {
   VPP_TON_KHO: 'product_id',
   VPP_BIEN_DONG_KHO: 'movement_id',
   VPP_DE_XUAT: 'proposal_id',
-  VPP_DE_XUAT_CHI_TIET: 'proposal_item_id'
+  VPP_DE_XUAT_CHI_TIET: 'proposal_item_id',
+  VPP_PHIEU_KHO: 'voucher_id',
+  DP_MAU: 'model_id',
+  DP_BIEN_THE: 'product_id',
+  DP_TON_KHO: 'product_id',
+  DP_BIEN_DONG_KHO: 'movement_id',
+  DP_DINH_MUC: 'norm_id',
+  DP_THU_HOI: 'return_id'
 };
+
+/**
+ * Cột định danh là UUID (mọi dòng dữ liệu phải có): dùng để phát hiện tiêu đề cột bị đổi tên / cột ID bị xóa trống — ví dụ
+ * VPP_DINH_MUC "norm_id" bị gõ đè thành "m" (đã xảy ra 10/2026): nâng cấp thêm cột "norm_id" MỚI (trống) và mọi định mức bị bỏ
+ * qua âm thầm. NHAN_VIEN / LOAI_BAN_GIAO / CAU_HINH dùng mã do người nhập (không phải UUID) nên không nằm trong danh sách.
+ */
+var UUID_ID_SHEETS = [
+  'BAN_GIAO', 'CHI_TIET_BAN_GIAO', 'LICH_SU', 'VPP_SAN_PHAM', 'VPP_DINH_MUC', 'VPP_TON_KHO', 'VPP_BIEN_DONG_KHO', 'VPP_DE_XUAT',
+  'VPP_DE_XUAT_CHI_TIET', 'VPP_PHIEU_KHO', 'DP_MAU', 'DP_BIEN_THE', 'DP_TON_KHO', 'DP_BIEN_DONG_KHO', 'DP_DINH_MUC', 'DP_THU_HOI'
+];
 
 var STATUS = {
   PENDING: 'PENDING',
@@ -198,6 +274,7 @@ var STATUS_LABELS = {
 /** Loại phiếu bàn giao (bước đầu tiên khi admin tạo phiếu). */
 var HANDOVER_TYPES = {
   ASSET: 'Thiết bị / tài sản',
+  UNIFORM: 'Đồng phục',
   OFFICE_SUPPLY: 'Văn phòng phẩm',
   ACCOUNT: 'Tài khoản',
   DOCUMENT: 'Hồ sơ',
@@ -208,6 +285,9 @@ var HANDOVER_TYPES = {
 /** Loại nội dung (LOAI_BAN_GIAO.code) dành riêng cho văn phòng phẩm — chỉ dùng trong phiếu OFFICE_SUPPLY. */
 var VPP_CATEGORY_CODE = 'VAN_PHONG_PHAM';
 
+/** Loại nội dung dành riêng cho đồng phục — chỉ dùng trong phiếu UNIFORM (chọn mẫu / size từ kho đồng phục). */
+var UNIFORM_CATEGORY_CODE = 'DONG_PHUC';
+
 /** Loại phiếu mặc định của các loại nội dung có sẵn (khi cột handover_type trong LOAI_BAN_GIAO để trống). */
 var DEFAULT_CATEGORY_TYPES = {
   THIET_BI_CNTT: 'ASSET',
@@ -217,7 +297,8 @@ var DEFAULT_CATEGORY_TYPES = {
   HO_SO: 'DOCUMENT',
   CONG_VIEC: 'WORK',
   KHAC: 'OTHER',
-  VAN_PHONG_PHAM: 'OFFICE_SUPPLY'
+  VAN_PHONG_PHAM: 'OFFICE_SUPPLY',
+  DONG_PHUC: 'UNIFORM'
 };
 
 var LIMITS = {
@@ -237,7 +318,16 @@ var LIMITS = {
   PROPOSAL_REASON: 1000,
   PROPOSAL_ITEMS: 50,
   STOCK_REASON: 500,
-  URL: 500
+  URL: 500,
+  UNIFORM_MODEL_NAME: 120,
+  UNIFORM_APPLIES_TO: 200,
+  UNIFORM_MAX_SIZES: 12,
+  MAX_YEARLY_QUOTA: 100,
+  // Phiếu nhập / xuất kho VPP và cập nhật danh mục từ Excel.
+  VOUCHER_MAX_LINES: 300,
+  VOUCHER_TEXT: 120,
+  VOUCHER_NOTE: 1000,
+  IMPORT_MAX_ROWS: 3000
 };
 
 /**
@@ -334,6 +424,14 @@ var DEFAULT_CATEGORIES = [
     hint: 'Chỉ dùng trong phiếu bàn giao văn phòng phẩm (chọn sản phẩm từ kho).',
     sort_order: 8,
     handover_type: 'OFFICE_SUPPLY'
+  },
+  {
+    code: 'DONG_PHUC',
+    name: 'Đồng phục',
+    form_fields: 'item_name*:Mẫu đồng phục|unit:ĐVT|quantity*:Số lượng|condition:Tình trạng|deadline:Hạn trả|note:Ghi chú',
+    hint: 'Chỉ dùng trong phiếu bàn giao đồng phục (chọn mẫu, size từ kho đồng phục).',
+    sort_order: 9,
+    handover_type: 'UNIFORM'
   }
 ];
 
@@ -344,6 +442,13 @@ var DEFAULT_SETTINGS = [
   { key: 'ORG_ADDRESS', value: '', description: 'Địa chỉ đơn vị (tùy chọn)' },
   { key: 'PDF_TITLE', value: 'BIÊN BẢN BÀN GIAO', description: 'Tiêu đề PDF' },
   { key: 'PDF_TITLE_VPP', value: 'BIÊN BẢN BÀN GIAO VĂN PHÒNG PHẨM', description: 'Tiêu đề PDF của phiếu văn phòng phẩm' },
+  { key: 'PDF_TITLE_DP', value: 'BIÊN BẢN BÀN GIAO ĐỒNG PHỤC', description: 'Tiêu đề PDF của phiếu đồng phục' },
+  {
+    key: 'DP_TIEU_CHUAN_NAM',
+    value: '3',
+    description: 'Số đồng phục mỗi nhân viên được cấp phát / năm khi nhóm chưa có tiêu chuẩn riêng (Chính sách người lao động ' +
+      '19/08/2025, mục VII.2: 03). 0 = không áp dụng tiêu chuẩn mặc định'
+  },
   { key: 'PDF_SHOW_NATIONAL_HEADER', value: 'TRUE', description: 'TRUE = in Quốc hiệu – Tiêu ngữ trên PDF' },
   { key: 'LOGO_FILE_ID', value: '', description: 'ID file ảnh logo (PNG/JPG) trên Google Drive để in lên PDF (tùy chọn)' },
   {
@@ -402,7 +507,10 @@ var MOVEMENT_TYPES = {
   RESERVE: 'RESERVE',       // giữ chỗ cho phiếu chờ ký
   RELEASE: 'RELEASE',       // trả giữ chỗ (hủy phiếu / giảm số lượng)
   OUT: 'OUT',               // xuất kho khi người nhận ký xác nhận
-  ADJUSTMENT: 'ADJUSTMENT'  // kiểm kê / điều chỉnh / ghép dữ liệu
+  ADJUSTMENT: 'ADJUSTMENT', // kiểm kê / điều chỉnh / ghép dữ liệu
+  RETURN: 'RETURN',         // (đồng phục) nhân viên trả lại — nhập lại kho
+  DISPOSE: 'DISPOSE',       // (đồng phục) thanh lý / hủy hàng trong kho
+  ISSUE: 'ISSUE'            // (VPP) xuất kho trực tiếp theo phiếu xuất (không qua phiếu bàn giao ký nhận)
 };
 
 var PROPOSAL_STATUS = {
@@ -433,6 +541,46 @@ var STOCK_IN_REASONS = {
   TON_DAU_KY: 'Tồn đầu kỳ',
   KHAC: 'Khác'
 };
+
+// ============================================================================
+// Đồng phục (DP) — khớp shared/uniform.ts
+// ============================================================================
+
+var UNIFORM_KINDS = { UNIFORM: 'Đồng phục', PPE: 'Bảo hộ lao động', OTHER: 'Khác' };
+var UNIFORM_GENDERS = { NAM: 'Nam', NU: 'Nữ', UNISEX: 'Nam & nữ' };
+var EMPLOYEE_GENDERS = { NAM: 'Nam', NU: 'Nữ' };
+var UNIFORM_CONDITIONS = { NEW: 'Mới', USED: 'Đã qua sử dụng' };
+var ISSUE_KINDS = { CAP_PHAT: 'Cấp phát', CHO_MUON: 'Cho mượn' };
+var RETURN_RESULTS = { RESTOCK: 'Nhận lại — nhập kho', DAMAGED: 'Hư hỏng — không nhập kho', LOST: 'Mất' };
+var RETURN_REASONS = {
+  TRA_MUON: 'Trả đồ mượn',
+  NGHI_VIEC: 'Thu hồi khi nghỉ việc',
+  DOI_SIZE: 'Đổi size',
+  HU_HONG: 'Hư hỏng',
+  KHAC: 'Khác'
+};
+/** Lý do nhập kho đồng phục. TON_DAU_KY ghi movement INITIAL, còn lại ghi IN. */
+var UNIFORM_STOCK_IN_REASONS = { MUA_MOI: 'Mua / đặt may mới', TON_DAU_KY: 'Tồn đầu kỳ', CHUYEN_KHO: 'Chuyển kho', KHAC: 'Khác' };
+/** Size: chữ in hoa / số / dấu gạch (S, XL, 3XL, 38, FREE) — khớp UNIFORM_SIZE_PATTERN (shared/uniform.ts). */
+var UNIFORM_SIZE_PATTERN_ = /^[A-Z0-9][A-Z0-9-]{0,9}$/;
+var DEFAULT_UNIFORM_SIZES = ['S', 'M', 'L', 'XL', 'XXL'];
+/** Tiền tố khóa CAU_HINH gắn phòng ban → nhóm tiêu chuẩn đồng phục ("NONE" = không áp dụng tiêu chuẩn). */
+var DP_SCOPE_SETTING_PREFIX = 'DP_SCOPE:';
+
+/**
+ * Danh mục mẫu đồng phục khởi tạo (seedUniformCatalog) — theo "DS đồng phục 2023 / 2024" của P.HCNS (các mẫu ÁO SƠMI ĐỎ, ÁO SƠMI
+ * VÀNG, ÁO DÀI VÀNG, ÁO DÀI XANH, ÁO THUN CÁ SẤU, ÁO THUN VP; size S–XXL) + áo bảo hộ (đang cấp qua module văn phòng phẩm).
+ * Không có tồn kho / đơn giá: nhập qua trang Tồn kho (lý do "Tồn đầu kỳ") sau khi đếm thực tế. Đối tượng sử dụng chỉ là mô tả.
+ */
+var UNIFORM_SEED_MODELS = [
+  { code: 'DP-001', name: 'Áo sơmi đỏ', kind: 'UNIFORM', gender: 'NAM', appliesTo: 'Nhân viên kinh doanh / showroom (nam)' },
+  { code: 'DP-002', name: 'Áo sơmi vàng', kind: 'UNIFORM', gender: 'NAM', appliesTo: 'Quản lý / giám đốc khối (nam)' },
+  { code: 'DP-003', name: 'Áo dài vàng', kind: 'UNIFORM', gender: 'NU', appliesTo: 'Nhân viên kinh doanh / showroom (nữ)' },
+  { code: 'DP-004', name: 'Áo dài xanh', kind: 'UNIFORM', gender: 'NU', appliesTo: 'Quản lý / giám đốc khối, trưởng nhóm (nữ)' },
+  { code: 'DP-005', name: 'Áo thun cá sấu', kind: 'UNIFORM', gender: 'UNISEX', appliesTo: 'Bộ phận Hỗ trợ - Giao nhận, kỹ thuật, kho, tạp vụ' },
+  { code: 'DP-006', name: 'Áo thun văn phòng', kind: 'UNIFORM', gender: 'UNISEX', appliesTo: 'Khối văn phòng, Ban Tổng Giám đốc' },
+  { code: 'DP-007', name: 'Áo bảo hộ', kind: 'PPE', gender: 'UNISEX', appliesTo: 'Hỗ trợ - Giao nhận, kho (bảo hộ lao động)', countsTowardQuota: false }
+];
 
 /**
  * Dữ liệu nhân viên MẪU để thử hệ thống — mã bắt đầu bằng "DEMO-".

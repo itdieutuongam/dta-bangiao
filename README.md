@@ -1,7 +1,8 @@
 # DTA Handover — Hệ thống bàn giao nội bộ Diệu Tướng Am
 
-Ứng dụng web lập **biên bản bàn giao** tài sản, thiết bị, thẻ, tài khoản, hồ sơ, công việc, **văn phòng phẩm** và quản lý
-**kho văn phòng phẩm** (định mức, tồn kho, giữ chỗ, đề xuất mua, nhập kho, kiểm kê, cảnh báo).
+Ứng dụng web lập **biên bản bàn giao** tài sản, thiết bị, thẻ, tài khoản, hồ sơ, công việc, **văn phòng phẩm**, **đồng phục**
+và quản lý **kho văn phòng phẩm** (định mức, tồn kho, giữ chỗ, đề xuất mua, nhập kho, kiểm kê, cảnh báo) cùng **kho đồng phục**
+(mẫu × size, tiêu chuẩn cấp phát năm, cho mượn / thu hồi, dự trù đặt may) — phiên bản **2.1**.
 **Quản trị viên** tạo phiếu (chọn loại → người nhận → nội dung) → hệ thống sinh **link xác nhận** → người nhận mở link trên
 điện thoại của mình, kiểm tra và **ký tên** → biên bản, chữ ký và PDF được lưu trên Google Sheets / Google Drive → quản trị
 viên theo dõi toàn bộ lịch sử. Nhân viên gửi **đề xuất mua văn phòng phẩm** tại `/de-xuat-vpp`.
@@ -32,6 +33,7 @@ viên theo dõi toàn bộ lịch sử. Nhân viên gửi **đề xuất mua vă
 17. [Sao lưu (backup)](#17-sao-lưu-backup)
 18. [Xử lý sự cố (troubleshooting)](#18-xử-lý-sự-cố)
 19. [Nâng cấp từ v1 lên v2 (module Văn phòng phẩm)](#19-nâng-cấp-từ-v1-lên-v2)
+20. [Nâng cấp từ v2.0 lên v2.1 (module Đồng phục)](#20-nâng-cấp-từ-v20-lên-v21)
 - [Lệnh npm](#lệnh-npm) · [Kiểm thử](#kiểm-thử) · [Vận hành hằng ngày](#vận-hành-hằng-ngày) · [Tài liệu chi tiết](#tài-liệu-chi-tiết)
 
 ---
@@ -46,8 +48,9 @@ viên theo dõi toàn bộ lịch sử. Nhân viên gửi **đề xuất mua vă
 | Email & thông báo | Email tới quản trị viên (`CAU_HINH.NOTIFY_EMAILS`) khi người nhận yêu cầu chỉnh sửa, có đề xuất mua mới, phiếu VPP cần đối soát kho; email tổng hợp hằng ngày; huy hiệu số việc cần xử lý trên menu quản trị. Lỗi gửi mail hiện trên trang Tổng quan. |
 | Xuất CSV | Nút **Xuất CSV** trên trang Biên bản, Tồn kho, Lịch sử kho, Đề xuất mua — theo bộ lọc đang xem, mở đúng tiếng Việt bằng Excel, chống chèn công thức. |
 | Chữ ký & PDF | Chữ ký PNG (cắt sát, ≤ 600×300) lưu Drive `DTA_HANDOVER/signatures/YYYY/MM`; PDF lưu `DTA_HANDOVER/pdf/YYYY/MM` (bản cũ khi tạo lại chuyển vào `pdf-archive/`). PDF có mã toàn vẹn; dữ liệu bị sửa thẳng trên Sheet sau khi ký → không tạo PDF, admin thấy cảnh báo. File **private**, chỉ tải qua API. |
-| Quản trị (`/admin`) | Tài khoản riêng từng người (`ADMIN_USERS`) hoặc mật khẩu chung. Sidebar: **Tổng quan** · **Phiếu bàn giao** (Danh sách, Tạo phiếu) · **Văn phòng phẩm** (Tổng quan, Tồn kho, Định mức, Đề xuất mua, Lịch sử kho, Dữ liệu cần kiểm tra) · **Nhân viên** · **Cài đặt**. Nhật ký ghi rõ ai tạo / sửa / hủy / duyệt / nhập kho / kiểm kê. |
-| Văn phòng phẩm | Định mức tháng theo phòng ban (PHÒNG KINH DOANH, VĂN PHÒNG…), tồn kho `on_hand / reserved / available`, phiếu VPP **giữ chỗ** khi tạo, **xuất kho** khi người nhận ký, **trả giữ chỗ** khi hủy; không bao giờ âm tồn; cảnh báo 🔴 hết hàng / 🟠 sắp hết / 🟡 dữ liệu cần kiểm tra. Chi tiết: [docs/VAN_PHONG_PHAM.md](docs/VAN_PHONG_PHAM.md). |
+| Quản trị (`/admin`) | Tài khoản riêng từng người (`ADMIN_USERS`) hoặc mật khẩu chung. Sidebar: **Tổng quan** · **Phiếu bàn giao** (Danh sách, Tạo phiếu) · **Đồng phục** (Tổng quan, Tồn kho & mẫu, Cấp phát theo NV, Mượn / Trả, Tiêu chuẩn năm, Lịch sử kho) · **Văn phòng phẩm** (Tổng quan, Tồn kho, Nhập kho, Xuất kho, Phiếu nhập / xuất, Định mức, Đề xuất mua, Lịch sử kho, Dữ liệu cần kiểm tra) · **Nhân viên** · **Cài đặt**. Nhật ký ghi rõ ai tạo / sửa / hủy / duyệt / nhập kho / kiểm kê / thu hồi. Phiên hết hạn → hộp thoại đăng nhập lại ngay trên trang (không mất dữ liệu đang nhập). |
+| Đồng phục (v2.1) | Phiếu **Đồng phục**: chọn mẫu + size + tình trạng từ kho, **Cấp phát** (tính tiêu chuẩn năm — mặc định 3 áo / người / năm) hoặc **Cho mượn** (có hạn trả); giữ chỗ khi tạo, xuất kho khi ký; ghi nhận trả / thu hồi (nhập lại kho hàng đã qua sử dụng); sổ cấp phát theo nhân viên, dự trù đặt may theo size, đồ mượn quá hạn trên menu. Chi tiết: [docs/DONG_PHUC.md](docs/DONG_PHUC.md). |
+| Văn phòng phẩm | Định mức tháng theo phòng ban (PHÒNG KINH DOANH, VĂN PHÒNG…), tồn kho `on_hand / reserved / available`, phiếu VPP **giữ chỗ** khi tạo, **xuất kho** khi người nhận ký, **trả giữ chỗ** khi hủy; không bao giờ âm tồn; cảnh báo 🔴 hết hàng / 🟠 sắp hết / 🟡 dữ liệu cần kiểm tra. *(v2.1)* **Nhập kho** nhiều mặt hàng một phiếu (NK — đơn giá, nhà cung cấp, hóa đơn), **Xuất kho** cho phòng ban: tích chọn nhiều mặt hàng, còn hàng hiện trước (phiếu XK, tổng xuất theo phòng ban), **cập nhật danh mục + tồn từ file Excel** (xem trước rồi áp dụng). Chi tiết: [docs/VAN_PHONG_PHAM.md](docs/VAN_PHONG_PHAM.md). |
 | Đề xuất mua (`/de-xuat-vpp`) | Công khai (mobile-first, có thể yêu cầu mã truy cập nội bộ): nhân viên nhập **mã NV** → thấy định mức phòng ban → chọn số lượng; vượt định mức / ngoài định mức bắt buộc ghi lý do. Không công khai danh bạ nhân viên. |
 | Dữ liệu cấu hình được | Nhân viên (`NHAN_VIEN`), loại bàn giao và form của từng loại (`LOAI_BAN_GIAO`), nội dung PDF (`CAU_HINH`) — sửa trực tiếp trong Google Sheet, **không cần build lại**. |
 
@@ -67,7 +70,8 @@ Cloudflare Worker  ─────────── Static Assets (SPA, fallbac
 Google Apps Script Web App (doPost — JSON API)
    │  • xác thực HMAC + timestamp + chống replay • LockService cho thao tác ghi • CacheService
    ├──► Google Sheets: NHAN_VIEN · BAN_GIAO · CHI_TIET_BAN_GIAO · LOAI_BAN_GIAO · LICH_SU · CAU_HINH
-   │                   VPP_SAN_PHAM · VPP_DINH_MUC · VPP_TON_KHO · VPP_BIEN_DONG_KHO · VPP_DE_XUAT · VPP_DE_XUAT_CHI_TIET
+   │                   VPP_SAN_PHAM · VPP_DINH_MUC · VPP_TON_KHO · VPP_BIEN_DONG_KHO · VPP_DE_XUAT · VPP_DE_XUAT_CHI_TIET · VPP_PHIEU_KHO
+   │                   DP_MAU · DP_BIEN_THE · DP_TON_KHO · DP_BIEN_DONG_KHO · DP_DINH_MUC · DP_THU_HOI
    └──► Google Drive:  DTA_HANDOVER/signatures/YYYY/MM · pdf/YYYY/MM · pdf-archive/YYYY/MM · backups
 ```
 
@@ -371,7 +375,8 @@ Khôi phục: sao chép file backup thành Sheet mới → đặt `SPREADSHEET_I
 | `appsScript: "error"`; log Worker có `gas.invalid_response` | Web App trả trang HTML: chưa deploy *Anyone*, dùng URL `/dev`, deployment đã xóa, hoặc Workspace chặn chia sẻ ra ngoài | Deploy lại đúng mục 8–9; với Workspace: nhờ admin cho phép hoặc deploy từ tài khoản được phép |
 | Lỗi `UPSTREAM_AUTH_FAILED` (502) | `GAS_SHARED_SECRET` ≠ `BACKEND_SHARED_SECRET` | Đặt lại hai giá trị giống hệt nhau (không có khoảng trắng thừa) |
 | `database: "error"` | Chưa chạy `setupDatabase()` / `SPREADSHEET_ID` sai | Chạy `setupDatabase()`, `checkSetup()` |
-| Mọi thao tác báo `NOT_CONFIGURED` “… Nâng cấp module Văn phòng phẩm” | Code Apps Script v2 nhưng dữ liệu chưa nâng cấp (`SCHEMA_VERSION` < 2) | Menu **DTA Handover → Nâng cấp module Văn phòng phẩm (v2)** — xem [mục 19](#19-nâng-cấp-từ-v1-lên-v2) |
+| Mọi thao tác báo `NOT_CONFIGURED` “… Nâng cấp module Đồng phục (v3)” | Code Apps Script v2.1 nhưng dữ liệu chưa nâng cấp (`SCHEMA_VERSION` < 3) | Menu **DTA Handover → Nâng cấp module Đồng phục (v3)** — xem [mục 20](#20-nâng-cấp-từ-v20-lên-v21) |
+| Báo `NOT_CONFIGURED` ngay sau khi ai đó sửa Sheet; *Cài đặt* báo cột định danh trống / tiêu đề trùng | Tiêu đề cột hệ thống bị gõ đè / dán đè | Hoàn tác trên Sheet, rồi menu **Sửa cột định danh bị đổi tên** → **Kiểm tra cấu hình**. Không chạy “Thiết lập database” khi tiêu đề còn sai |
 | Lỗi `UPSTREAM_OUTDATED` | Worker v2 gọi Apps Script còn code v1 | Cập nhật code Apps Script + *New version* (mục 8) |
 | Văn phòng phẩm “Hết hàng” toàn bộ ngay sau khi nạp dữ liệu | Tồn đầu kỳ chưa được ghép vào sản phẩm danh mục (không tự ghép) | *Văn phòng phẩm → Dữ liệu cần kiểm tra*: GHÉP / TẠO SẢN PHẨM MỚI / BỎ QUA, kiểm kê số chưa rõ |
 | Tạo phiếu VPP báo `INSUFFICIENT_STOCK` | Khả dụng (= tồn − đang giữ chỗ) không đủ | Nhập kho / hủy phiếu chờ ký đang giữ chỗ, hoặc bấm **TẠO ĐỀ XUẤT MUA** |
@@ -414,7 +419,7 @@ Apps Script → *Executions*.
 ## Kiểm thử
 
 ```bash
-npm test            # 137 test: validation, crypto, session, router, CSV, API Worker ⇄ Apps Script (giả lập), mã OTP, email, kho VPP, quyền, bản gộp 1 file
+npm test            # 268 test: validation, crypto, session, router, CSV, API Worker ⇄ Apps Script (giả lập), mã OTP, email, kho VPP, đồng phục, niêm phong, bộ lọc mật khẩu, quyền, bản gộp 1 file
 npm run test:e2e    # 25 test trên trình duyệt thật (kể cả ký có mã OTP) — cần Chrome hoặc Edge
 ```
 
@@ -445,8 +450,12 @@ Danh sách ca kiểm thử và checklist nghiệm thu trên Google thật: [docs
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Luồng dữ liệu, giao thức Worker ⇄ Apps Script, token, cache, khóa, PDF |
 | [docs/GOOGLE_SETUP.md](docs/GOOGLE_SETUP.md) | Thiết lập Google Sheet, Apps Script, Drive, deploy Web App |
 | [docs/CLOUDFLARE_DEPLOY.md](docs/CLOUDFLARE_DEPLOY.md) | Secrets, deploy, custom domain, logs, rollback, CI |
-| [docs/DATABASE.md](docs/DATABASE.md) | Cấu trúc 12 sheet (6 sheet bàn giao + 6 sheet văn phòng phẩm), cấu hình loại bàn giao, Drive |
+| [docs/DATABASE.md](docs/DATABASE.md) | Cấu trúc 19 sheet (6 bàn giao + 7 văn phòng phẩm + 6 đồng phục), cấu hình loại bàn giao, Drive |
 | [docs/VAN_PHONG_PHAM.md](docs/VAN_PHONG_PHAM.md) | Module văn phòng phẩm: định mức, tồn kho, giữ chỗ, đề xuất mua, nhập kho, kiểm kê, dữ liệu ban đầu |
+| [docs/DONG_PHUC.md](docs/DONG_PHUC.md) | Module đồng phục: mẫu × size, tiêu chuẩn năm, cấp phát / cho mượn, trả / thu hồi, dự trù đặt may, đưa vào sử dụng |
+| [docs/UPGRADE_V2.1.md](docs/UPGRADE_V2.1.md) | Các bước nâng cấp v2.0 → v2.1 và việc vận hành ngay sau nâng cấp |
+| [docs/AUDIT_V2.1.md](docs/AUDIT_V2.1.md) | Báo cáo rà soát v2.0: 60 phát hiện, trạng thái sửa, lộ trình |
+| [docs/BAN_GIAO_HE_THONG.md](docs/BAN_GIAO_HE_THONG.md) | Bàn giao vận hành: quyền sở hữu, danh mục secret, phát hành, sao lưu / khôi phục, giám sát, offboarding |
 | [docs/SECURITY.md](docs/SECURITY.md) | Mô hình bảo mật, secret, phân quyền, chống CSRF/XSS/injection, toàn vẹn biên bản |
 | [docs/TESTING.md](docs/TESTING.md) | Chiến lược kiểm thử, ca kiểm thử, chạy E2E qua WSL, checklist nghiệm thu |
 | [docs/API.md](docs/API.md) | Danh sách API, định dạng response, mã lỗi |
@@ -476,3 +485,16 @@ mới không khớp nhau nên chưa tạo / ký phiếu được. Phiếu đang 
 8. Email (tùy chọn nhưng khuyến nghị): điền `NOTIFY_EMAILS` trong sheet `CAU_HINH` → menu *Gửi thử email thông báo* → *Bật email
    tổng hợp hằng ngày*. **Lưu ý thay đổi luồng ký:** từ bản này, người nhận có email trong `NHAN_VIEN` phải nhập mã gửi qua email
    khi ký (`CONFIRM_OTP = EMAIL`). Kiểm tra email nhân viên trước khi đưa vào dùng; muốn giữ luồng cũ đặt `CONFIRM_OTP = OFF`.
+
+## 20. Nâng cấp từ v2.0 lên v2.1
+
+v2.1 thêm module **Đồng phục** (cấu trúc dữ liệu v3: 6 sheet `DP_*`, cột `gender` / `uniform_size` / `size` / `issue_kind`) và sửa
+các lỗi của đợt rà soát ([docs/AUDIT_V2.1.md](docs/AUDIT_V2.1.md)). Tóm tắt — chi tiết và việc vận hành sau nâng cấp ở
+[docs/UPGRADE_V2.1.md](docs/UPGRADE_V2.1.md):
+
+1. *Sao lưu ngay* → dán bản gộp `npm run gas:bundle` vào Apps Script → *Kiểm tra cấu hình*.
+2. Menu **DTA Handover → Nâng cấp module Đồng phục (v3)** (tự sao lưu; tự sửa cột định danh bị đổi tên như sự cố `VPP_DINH_MUC`).
+3. *Quản lý triển khai → Phiên bản mới* → menu **Khởi tạo danh mục đồng phục** → **Khóa sheet hệ thống**.
+4. Deploy Worker (không có secret bắt buộc mới; **giữ nguyên `RECORD_SEAL_SECRET`**).
+5. Ngay sau đó: đổi mật khẩu tài khoản bị ghi trong biên bản BG-20261005-0001, điền email nhân viên rồi bật `CONFIRM_OTP = REQUIRED`,
+   gắn phòng ban với định mức VPP, nhập tồn đầu kỳ đồng phục.

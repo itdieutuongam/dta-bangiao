@@ -7,11 +7,27 @@ import {
   LIMITS,
   UUID_PATTERN,
 } from './constants';
-import { containsPasswordLike, isHttpUrl, isValidDateOnly, stripControlChars } from './text';
+import { containsCredentialPair, containsPasswordLike, isHttpUrl, isValidDateOnly, stripControlChars } from './text';
+import {
+  EMPLOYEE_GENDERS,
+  ISSUE_KINDS,
+  RETURN_REASONS,
+  RETURN_RESULTS,
+  UNIFORM_CONDITIONS,
+  UNIFORM_GENDERS,
+  UNIFORM_KINDS,
+  UNIFORM_MAX_SIZES,
+  UNIFORM_MOVEMENT_TYPES,
+  UNIFORM_SIZE_PATTERN,
+  UNIFORM_STOCK_IN_REASONS,
+} from './uniform';
 import { CATALOG_STATUSES, MOVEMENT_TYPES, PROPOSAL_STATUSES, STOCK_IN_REASONS, STOCK_STATUSES } from './vpp';
 
 export const PASSWORD_FORBIDDEN_MESSAGE =
   'Không được ghi mật khẩu vào biên bản. Hãy bàn giao mật khẩu trực tiếp hoặc yêu cầu người nhận tự đặt lại.';
+
+/** Loại nội dung "Tài khoản" (LOAI_BAN_GIAO) — kiểm tra thêm cặp "email / mật khẩu". Khớp ACCOUNT_CATEGORY_CODE_ (Utils.gs). */
+const ACCOUNT_CATEGORY_CODE = 'TAI_KHOAN';
 
 const INVALID_TEXT = 'Giá trị phải là chuỗi ký tự';
 
@@ -92,10 +108,12 @@ export const handoverItemSchema = z
       ctx.addIssue({ code: 'custom', path: ['itemName'], message: 'Nhập tên hoặc nội dung bàn giao' });
     }
     for (const key of TEXT_ITEM_KEYS) {
-      if (containsPasswordLike(item[key])) {
+      if (containsPasswordLike(item[key]) || (item.category === ACCOUNT_CATEGORY_CODE && containsCredentialPair(item[key]))) {
         ctx.addIssue({ code: 'custom', path: [key], message: PASSWORD_FORBIDDEN_MESSAGE });
       }
     }
+    // Link tài liệu: không chứa tài khoản (https://user:matkhau@host, …?pwd=…).
+    if (containsPasswordLike(item.documentUrl)) ctx.addIssue({ code: 'custom', path: ['documentUrl'], message: PASSWORD_FORBIDDEN_MESSAGE });
   });
 
 /** Một dòng văn phòng phẩm (phiếu OFFICE_SUPPLY): sản phẩm trong kho + số lượng. */
@@ -109,6 +127,27 @@ export const supplyLineSchema = z
   .superRefine((line, ctx) => {
     if (containsPasswordLike(line.note)) ctx.addIssue({ code: 'custom', path: ['note'], message: PASSWORD_FORBIDDEN_MESSAGE });
   });
+
+/**
+ * Một dòng đồng phục (phiếu UNIFORM): mặt hàng trong kho (mẫu × size × tình trạng) + SL + Cấp phát / Cho mượn.
+ * Cho mượn bắt buộc hạn trả; Cấp phát không có hạn trả (bỏ qua giá trị gửi lên).
+ */
+export const uniformLineSchema = z
+  .object({
+    productId: uuid('Chọn mẫu và size đồng phục'),
+    quantity: intIn(1, LIMITS.maxQuantity, `Số lượng phải là số nguyên từ 1 đến ${LIMITS.maxQuantity}`),
+    issueKind: z.enum(ISSUE_KINDS, { error: 'Chọn hình thức: Cấp phát hoặc Cho mượn' }).default('CAP_PHAT'),
+    dueDate: optionalDateOnly,
+    note: multiLine(ITEM_FIELD_META.note.max).default(''),
+    overQuotaReason: multiLine(LIMITS.overNormReason).default(''),
+  })
+  .superRefine((line, ctx) => {
+    if (line.issueKind === 'CHO_MUON' && !line.dueDate) {
+      ctx.addIssue({ code: 'custom', path: ['dueDate'], message: 'Cho mượn phải có hạn trả' });
+    }
+    if (containsPasswordLike(line.note)) ctx.addIssue({ code: 'custom', path: ['note'], message: PASSWORD_FORBIDDEN_MESSAGE });
+  })
+  .transform((line) => (line.issueKind === 'CAP_PHAT' ? { ...line, dueDate: '' } : line));
 
 export const handoverInputSchema = z
   .object({
@@ -131,6 +170,10 @@ export const handoverInputSchema = z
       .array(supplyLineSchema, { error: 'Danh sách văn phòng phẩm không hợp lệ' })
       .max(LIMITS.maxItems, `Tối đa ${LIMITS.maxItems} sản phẩm trong một phiếu`)
       .default([]),
+    uniforms: z
+      .array(uniformLineSchema, { error: 'Danh sách đồng phục không hợp lệ' })
+      .max(LIMITS.maxItems, `Tối đa ${LIMITS.maxItems} dòng đồng phục trong một phiếu`)
+      .default([]),
   })
   .superRefine((value, ctx) => {
     if (value.sender.employeeId && value.sender.employeeId === value.receiverEmployeeId) {
@@ -139,7 +182,15 @@ export const handoverInputSchema = z
     if (containsPasswordLike(value.note)) {
       ctx.addIssue({ code: 'custom', path: ['note'], message: PASSWORD_FORBIDDEN_MESSAGE });
     }
-    if (value.handoverType === 'OFFICE_SUPPLY') {
+    const isSupply = value.handoverType === 'OFFICE_SUPPLY';
+    const isUniform = value.handoverType === 'UNIFORM';
+    if (!isSupply && value.supplies.length) {
+      ctx.addIssue({ code: 'custom', path: ['supplies'], message: 'Chỉ phiếu Văn phòng phẩm mới chọn sản phẩm văn phòng phẩm trong kho.' });
+    }
+    if (!isUniform && value.uniforms.length) {
+      ctx.addIssue({ code: 'custom', path: ['uniforms'], message: 'Chỉ phiếu Đồng phục mới chọn đồng phục trong kho.' });
+    }
+    if (isSupply) {
       if (value.items.length) {
         ctx.addIssue({ code: 'custom', path: ['items'], message: 'Phiếu văn phòng phẩm chỉ gồm sản phẩm chọn từ kho.' });
       }
@@ -151,11 +202,25 @@ export const handoverInputSchema = z
         }
         seen.add(line.productId);
       });
-    } else {
-      if (value.supplies.length) {
-        ctx.addIssue({ code: 'custom', path: ['supplies'], message: 'Chỉ phiếu Văn phòng phẩm mới chọn sản phẩm trong kho.' });
+    } else if (isUniform) {
+      if (value.items.length) {
+        ctx.addIssue({ code: 'custom', path: ['items'], message: 'Phiếu đồng phục chỉ gồm mẫu / size chọn từ kho đồng phục.' });
       }
-      if (!value.items.length) ctx.addIssue({ code: 'custom', path: ['items'], message: 'Cần ít nhất 1 nội dung bàn giao' });
+      if (!value.uniforms.length) ctx.addIssue({ code: 'custom', path: ['uniforms'], message: 'Chọn ít nhất 1 mẫu đồng phục' });
+      const seen = new Set<string>();
+      value.uniforms.forEach((line, i) => {
+        const key = `${line.productId}|${line.issueKind}`;
+        if (seen.has(key)) {
+          ctx.addIssue({
+            code: 'custom',
+            path: ['uniforms', i, 'productId'],
+            message: 'Mẫu / size / hình thức bị trùng — hãy gộp số lượng vào một dòng',
+          });
+        }
+        seen.add(key);
+      });
+    } else if (!value.items.length) {
+      ctx.addIssue({ code: 'custom', path: ['items'], message: 'Cần ít nhất 1 nội dung bàn giao' });
     }
   });
 
@@ -177,7 +242,9 @@ export const confirmSchema = z.object({
     .string({ error: 'Vui lòng ký tên trước khi xác nhận' })
     .max(SIGNATURE_DATA_URL_MAX, 'Ảnh chữ ký quá lớn')
     .regex(/^data:image\/png;base64,[A-Za-z0-9+/]+={0,2}$/, 'Dữ liệu chữ ký không hợp lệ'),
-  comment: multiLine(LIMITS.receiverComment).default(''),
+  comment: multiLine(LIMITS.receiverComment)
+    .refine((v) => !containsPasswordLike(v), PASSWORD_FORBIDDEN_MESSAGE)
+    .default(''),
   /** Mã xác nhận 6 số gửi tới email người nhận (bắt buộc khi biên bản yêu cầu — Apps Script kiểm tra). */
   otp: z
     .string({ error: 'Mã xác nhận không hợp lệ' })
@@ -202,10 +269,9 @@ export const handoverUpdateMetaSchema = z.object({
 
 export const revisionSchema = z.object({
   contentHash,
-  reason: multiLine(LIMITS.receiverComment).min(
-    LIMITS.revisionReasonMin,
-    `Vui lòng nhập lý do / nội dung cần sửa (ít nhất ${LIMITS.revisionReasonMin} ký tự)`,
-  ),
+  reason: multiLine(LIMITS.receiverComment)
+    .min(LIMITS.revisionReasonMin, `Vui lòng nhập lý do / nội dung cần sửa (ít nhất ${LIMITS.revisionReasonMin} ký tự)`)
+    .refine((v) => !containsPasswordLike(v), PASSWORD_FORBIDDEN_MESSAGE),
 });
 
 export const cancelSchema = z.object({
@@ -334,6 +400,112 @@ export const stockAdjustSchema = z.object({
   reason: multiLine(LIMITS.stockReason).min(3, 'Nhập lý do điều chỉnh / kiểm kê'),
   clientRequestId,
 });
+
+// ---------------------------------------------------------------- Phiếu nhập / xuất kho nhiều mặt hàng (v2.1)
+
+export const VOUCHER_MAX_LINES = 300;
+
+const voucherLineFields = {
+  productId: uuid('Chọn mặt hàng'),
+  quantity: intIn(1, LIMITS.maxQuantity, `Số lượng phải là số nguyên từ 1 đến ${LIMITS.maxQuantity}`),
+  note: multiLine(LIMITS.stockReason).default(''),
+};
+
+function checkVoucherLines(lines: Array<{ productId: string; note: string }>, ctx: z.RefinementCtx) {
+  const seen = new Set<string>();
+  lines.forEach((l, i) => {
+    if (seen.has(l.productId)) {
+      ctx.addIssue({ code: 'custom', path: ['lines', i, 'productId'], message: 'Mặt hàng bị trùng — gộp số lượng vào một dòng' });
+    }
+    seen.add(l.productId);
+    if (containsPasswordLike(l.note)) ctx.addIssue({ code: 'custom', path: ['lines', i, 'note'], message: PASSWORD_FORBIDDEN_MESSAGE });
+  });
+}
+
+export const stockReceiptSchema = z
+  .object({
+    reasonType: z.enum(STOCK_IN_REASONS, { error: 'Chọn lý do nhập kho' }),
+    date: optionalDateOnly,
+    supplier: singleLine(120).default(''),
+    invoiceNo: singleLine(60).default(''),
+    note: multiLine(1000).default(''),
+    /** Cập nhật đơn giá tham khảo của sản phẩm theo đơn giá nhập. */
+    updatePrice: z.boolean().default(false),
+    lines: z
+      .array(z.object({ ...voucherLineFields, unitPrice: optionalPrice }), { error: 'Danh sách mặt hàng không hợp lệ' })
+      .min(1, 'Chọn ít nhất 1 mặt hàng')
+      .max(VOUCHER_MAX_LINES, `Tối đa ${VOUCHER_MAX_LINES} mặt hàng mỗi phiếu`),
+    clientRequestId,
+  })
+  .superRefine((v, ctx) => {
+    checkVoucherLines(v.lines, ctx);
+    if (v.reasonType === 'KHAC' && !v.note) ctx.addIssue({ code: 'custom', path: ['note'], message: 'Nhập ghi chú cho lý do "Khác"' });
+    if (containsPasswordLike(v.note)) ctx.addIssue({ code: 'custom', path: ['note'], message: PASSWORD_FORBIDDEN_MESSAGE });
+  });
+
+export const stockIssueSchema = z
+  .object({
+    date: optionalDateOnly,
+    department: singleLine(120).default(''),
+    receiverEmployeeId: singleLine(LIMITS.employeeId).default(''),
+    receiverName: singleLine(120).default(''),
+    note: multiLine(1000).default(''),
+    lines: z
+      .array(z.object(voucherLineFields), { error: 'Danh sách mặt hàng không hợp lệ' })
+      .min(1, 'Chọn ít nhất 1 mặt hàng để xuất')
+      .max(VOUCHER_MAX_LINES, `Tối đa ${VOUCHER_MAX_LINES} mặt hàng mỗi phiếu`),
+    clientRequestId,
+  })
+  .superRefine((v, ctx) => {
+    checkVoucherLines(v.lines, ctx);
+    if (!v.department && !v.receiverEmployeeId && !v.receiverName) {
+      ctx.addIssue({ code: 'custom', path: ['department'], message: 'Chọn phòng ban hoặc người nhận' });
+    }
+    if (containsPasswordLike(v.note)) ctx.addIssue({ code: 'custom', path: ['note'], message: PASSWORD_FORBIDDEN_MESSAGE });
+  });
+
+export const voucherListQuerySchema = z.object({
+  page: z.coerce.number().int().min(1).max(100_000).catch(1),
+  pageSize: z.coerce.number().int().min(10).max(200).catch(50),
+  type: z.enum(['IN', 'OUT', '']).catch(''),
+  from: optionalDate,
+  to: optionalDate,
+  department: singleLine(120).catch(''),
+  q: singleLine(120).catch(''),
+});
+
+// ---------------------------------------------------------------- Cập nhật danh mục + tồn kho từ Excel (v2.1)
+
+export const IMPORT_MAX_ROWS = 3000;
+
+export const vppImportRowSchema = z.object({
+  line: z.number().int().min(0).max(1_048_576),
+  code: z
+    .string()
+    .trim()
+    .toUpperCase()
+    .refine((v) => v === '' || /^[A-Z0-9][A-Z0-9._-]{1,39}$/.test(v), 'Mã không hợp lệ')
+    .default(''),
+  name: singleLine(LIMITS.productName).min(1, 'Thiếu tên sản phẩm'),
+  unit: singleLine(LIMITS.unit).default(''),
+  price: optionalPrice,
+  stock: intIn(0, LIMITS.maxQuantity, 'Tồn phải là số nguyên ≥ 0').nullable().default(null),
+  minimumStock: intIn(0, LIMITS.maxQuantity, 'Tồn tối thiểu phải là số nguyên ≥ 0').nullable().default(null),
+  matchProductId: z.string().trim().toLowerCase().regex(UUID_PATTERN).or(z.literal('')).default(''),
+});
+
+export const vppImportSchema = z.object({
+  rows: z
+    .array(vppImportRowSchema, { error: 'Danh sách dòng không hợp lệ' })
+    .min(1, 'File không có dòng sản phẩm nào')
+    .max(IMPORT_MAX_ROWS, `Tối đa ${IMPORT_MAX_ROWS} dòng mỗi lần`),
+  options: z
+    .object({ setStock: z.boolean().default(true), archiveMissing: z.boolean().default(false) })
+    .default({ setStock: true, archiveMissing: false }),
+  fileName: singleLine(120).default(''),
+});
+
+export const vppImportApplySchema = vppImportSchema.extend({ clientRequestId });
 
 export const proposalReviewSchema = z.object({
   decisions: z
@@ -495,6 +667,181 @@ export const proposalSubmitSchema = z.object({
     .max(LIMITS.maxItems, `Tối đa ${LIMITS.maxItems} sản phẩm trong một đề xuất`),
   clientRequestId: z.string().trim().toLowerCase().regex(UUID_PATTERN).optional(),
 });
+
+// ============================================================================
+// Đồng phục — quản trị
+// ============================================================================
+
+const uniformSize = z
+  .string({ error: 'Size không hợp lệ' })
+  .trim()
+  .toUpperCase()
+  .regex(UNIFORM_SIZE_PATTERN, 'Size chỉ gồm chữ in hoa / số / dấu gạch, tối đa 10 ký tự (S, XL, 3XL, 38, FREE)');
+
+export const uniformModelSaveSchema = z
+  .object({
+    modelCode: z
+      .string({ error: INVALID_TEXT })
+      .trim()
+      .toUpperCase()
+      .refine((v) => v === '' || /^[A-Z0-9][A-Z0-9._-]{0,39}$/.test(v), 'Mã chỉ gồm chữ, số, . _ - (tối đa 40 ký tự)')
+      .default(''),
+    modelName: singleLine(LIMITS.uniformModelName).min(1, 'Nhập tên mẫu đồng phục'),
+    kind: z.enum(UNIFORM_KINDS, { error: 'Chọn loại' }).default('UNIFORM'),
+    gender: z.enum(UNIFORM_GENDERS, { error: 'Chọn giới tính áp dụng' }).default('UNISEX'),
+    sizes: z
+      .array(uniformSize, { error: 'Danh sách size không hợp lệ' })
+      .min(1, 'Nhập ít nhất 1 size')
+      .max(UNIFORM_MAX_SIZES, `Tối đa ${UNIFORM_MAX_SIZES} size`),
+    unit: singleLine(LIMITS.unit).min(1, 'Nhập ĐVT (Cái, Bộ…)').default('Cái'),
+    referencePrice: optionalPrice,
+    countsTowardQuota: z.boolean().default(true),
+    minimumStock: intIn(0, LIMITS.maxQuantity, 'Tồn tối thiểu phải là số nguyên ≥ 0').default(0),
+    appliesTo: singleLine(LIMITS.uniformAppliesTo).default(''),
+    note: multiLine(1000).default(''),
+    active: z.boolean().default(true),
+    /** Chỉ dùng khi TẠO: gửi lại cùng mã → trả mẫu đã tạo, không tạo trùng. */
+    clientRequestId: z.string().trim().toLowerCase().regex(UUID_PATTERN, 'Mã thao tác không hợp lệ').optional(),
+  })
+  .superRefine((v, ctx) => {
+    const seen = new Set<string>();
+    v.sizes.forEach((s, i) => {
+      if (seen.has(s)) ctx.addIssue({ code: 'custom', path: ['sizes', i], message: `Size "${s}" bị trùng` });
+      seen.add(s);
+    });
+  });
+
+export const uniformNormSaveSchema = z
+  .object({
+    scopeId: z.string().trim().toUpperCase().default(''),
+    scopeName: singleLine(120).default(''),
+    /** '' = tổng mọi mẫu tính tiêu chuẩn. */
+    modelId: z
+      .string()
+      .trim()
+      .toLowerCase()
+      .refine((v) => v === '' || UUID_PATTERN.test(v), 'Mẫu không hợp lệ')
+      .default(''),
+    gender: z.union([z.enum(EMPLOYEE_GENDERS), z.literal('')]).default(''),
+    yearlyQuantity: intIn(0, LIMITS.maxYearlyQuota, `Tiêu chuẩn phải là số nguyên từ 0 đến ${LIMITS.maxYearlyQuota}`),
+    note: multiLine(1000).default(''),
+    effectiveFrom: optionalDateOnly,
+    effectiveTo: optionalDateOnly,
+    active: z.boolean().default(true),
+  })
+  .superRefine((v, ctx) => {
+    if (!v.scopeId && !v.scopeName) {
+      ctx.addIssue({ code: 'custom', path: ['scopeId'], message: 'Chọn nhóm áp dụng hoặc nhập tên nhóm mới' });
+    }
+    if (v.effectiveFrom && v.effectiveTo && v.effectiveTo < v.effectiveFrom) {
+      ctx.addIssue({ code: 'custom', path: ['effectiveTo'], message: 'Ngày kết thúc phải sau ngày bắt đầu' });
+    }
+  });
+
+export const uniformStockInSchema = z
+  .object({
+    modelId: uuid('Chọn mẫu đồng phục'),
+    size: uniformSize,
+    condition: z.enum(UNIFORM_CONDITIONS, { error: 'Chọn tình trạng' }).default('NEW'),
+    quantity: intIn(1, LIMITS.maxQuantity, 'Số lượng phải là số nguyên ≥ 1'),
+    reasonType: z.enum(UNIFORM_STOCK_IN_REASONS, { error: 'Chọn lý do nhập kho' }),
+    unitPrice: optionalPrice,
+    date: optionalDateOnly,
+    note: multiLine(LIMITS.stockReason).default(''),
+    clientRequestId,
+  })
+  .superRefine((v, ctx) => {
+    if (v.reasonType === 'KHAC' && !v.note) ctx.addIssue({ code: 'custom', path: ['note'], message: 'Nhập ghi chú cho lý do "Khác"' });
+  });
+
+export const uniformStockAdjustSchema = z.object({
+  productId: uuid('Chọn mặt hàng'),
+  countedQuantity: intIn(0, LIMITS.maxQuantity, 'Tồn kiểm kê phải là số nguyên ≥ 0'),
+  reason: multiLine(LIMITS.stockReason).min(3, 'Nhập lý do điều chỉnh / kiểm kê'),
+  clientRequestId,
+});
+
+/** Thanh lý / hủy hàng trong kho (hư hỏng, lỗi may) — không thấp hơn số đang giữ chỗ. */
+export const uniformStockDisposeSchema = z.object({
+  productId: uuid('Chọn mặt hàng'),
+  quantity: intIn(1, LIMITS.maxQuantity, 'Số lượng phải là số nguyên ≥ 1'),
+  reason: multiLine(LIMITS.stockReason).min(3, 'Nhập lý do thanh lý / hủy'),
+  clientRequestId,
+});
+
+export const uniformStockQuerySchema = z.object({
+  q: singleLine(120).catch(''),
+  includeInactive: z
+    .enum(['true', 'false', ''])
+    .catch('')
+    .transform((v) => v === 'true'),
+});
+
+export const uniformMovementListQuerySchema = z.object({
+  page: z.coerce.number().int().min(1).max(100_000).catch(1),
+  pageSize: z.coerce.number().int().min(10).max(200).catch(50),
+  modelId: z.string().trim().toLowerCase().regex(UUID_PATTERN).or(z.literal('')).catch(''),
+  productId: z.string().trim().toLowerCase().regex(UUID_PATTERN).or(z.literal('')).catch(''),
+  type: z.union([z.enum(UNIFORM_MOVEMENT_TYPES), z.literal('')]).catch(''),
+  from: optionalDate,
+  to: optionalDate,
+  q: singleLine(120).catch(''),
+});
+
+/** Hồ sơ đồng phục của nhân viên (ghi vào NHAN_VIEN.gender / uniform_size). '' = xóa. */
+export const uniformProfileSchema = z.object({
+  gender: z.union([z.enum(EMPLOYEE_GENDERS), z.literal('')]).default(''),
+  uniformSize: z
+    .string({ error: 'Size không hợp lệ' })
+    .trim()
+    .toUpperCase()
+    .refine((v) => v === '' || UNIFORM_SIZE_PATTERN.test(v), 'Size không hợp lệ (S, M, L, XL, XXL, 3XL…)')
+    .default(''),
+});
+
+const currentYear = () => Number(new Date().toLocaleString('en-US', { timeZone: 'Asia/Ho_Chi_Minh', year: 'numeric' }));
+
+export const uniformEmployeesQuerySchema = z.object({
+  year: z.coerce.number().int().min(2020).max(2100).catch(() => currentYear()),
+  q: singleLine(120).catch(''),
+  department: singleLine(120).catch(''),
+  includeInactive: z
+    .enum(['true', 'false', ''])
+    .catch('')
+    .transform((v) => v === 'true'),
+});
+
+export const uniformHoldingsQuerySchema = z.object({
+  /** outstanding = còn giữ (chưa trả hết) · overdue = mượn quá hạn · loans = đang mượn · all = mọi dòng đã ký nhận. */
+  status: z.enum(['outstanding', 'overdue', 'loans', 'all']).catch('loans'),
+  employeeId: singleLine(LIMITS.employeeId).catch(''),
+  q: singleLine(120).catch(''),
+});
+
+/** Ghi nhận nhân viên trả / thu hồi đồng phục của một dòng phiếu đã ký. */
+export const uniformReturnSchema = z
+  .object({
+    handoverId: uuid('Thiếu phiếu bàn giao'),
+    itemId: uuid('Thiếu dòng đồng phục'),
+    quantity: intIn(1, LIMITS.maxQuantity, 'Số lượng phải là số nguyên ≥ 1'),
+    result: z.enum(RETURN_RESULTS, { error: 'Chọn kết quả' }),
+    /** Chỉ khi nhập lại kho: tình trạng hàng nhận lại (thường là Đã qua sử dụng). */
+    restockCondition: z.union([z.enum(UNIFORM_CONDITIONS), z.literal('')]).default(''),
+    reason: z.enum(RETURN_REASONS, { error: 'Chọn lý do' }),
+    note: multiLine(LIMITS.stockReason).default(''),
+    clientRequestId,
+  })
+  .superRefine((v, ctx) => {
+    if (v.result === 'RESTOCK' && !v.restockCondition) {
+      ctx.addIssue({ code: 'custom', path: ['restockCondition'], message: 'Chọn tình trạng hàng nhập lại kho' });
+    }
+    if ((v.reason === 'KHAC' || v.result !== 'RESTOCK') && !v.note) {
+      ctx.addIssue({ code: 'custom', path: ['note'], message: 'Nhập ghi chú (mô tả hư hỏng / mất / lý do khác)' });
+    }
+  })
+  .transform((v) => (v.result === 'RESTOCK' ? v : { ...v, restockCondition: '' as const }));
+
+export const uniformContextQuerySchema = handoverContextQuerySchema;
 
 /** Gom lỗi Zod thành map "đường dẫn field" → thông báo đầu tiên. */
 export function toFieldErrors(error: z.ZodError): Record<string, string> {

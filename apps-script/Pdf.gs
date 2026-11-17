@@ -1,6 +1,6 @@
 /**
  * Pdf.gs — sinh PDF biên bản (HTML → PDF bằng HtmlService) và lưu vào Drive/pdf/YYYY/MM.
- * Nội dung tùy biến qua sheet CAU_HINH: ORG_NAME, ORG_FULL_NAME, ORG_ADDRESS, PDF_TITLE, PDF_TITLE_VPP,
+ * Nội dung tùy biến qua sheet CAU_HINH: ORG_NAME, ORG_FULL_NAME, ORG_ADDRESS, PDF_TITLE, PDF_TITLE_VPP, PDF_TITLE_DP,
  * PDF_SHOW_NATIONAL_HEADER, LOGO_FILE_ID, PDF_FOOTER.
  *
  * Toàn vẹn: trước khi dựng PDF, biên bản hiện tại phải khớp lúc ký (content_hash, record_hash, niêm phong record_seal — xem
@@ -170,11 +170,15 @@ function pdfStyles_() {
 function buildHandoverPdfHtml_(rec, items, categoryMap, signatureDataUri, settings) {
   var esc = escapeHtml_;
   var multiline = function (s) { return esc(s).replace(/\n/g, '<br>'); };
-  var isSupply = effectiveHandoverType_(rec, items) === 'OFFICE_SUPPLY';
+  var handoverType = effectiveHandoverType_(rec, items);
+  var isSupply = handoverType === 'OFFICE_SUPPLY';
+  var isUniform = handoverType === 'UNIFORM';
   var orgName = settings.ORG_NAME || 'DIỆU TƯỚNG AM';
   var title = isSupply
     ? (settings.PDF_TITLE_VPP || 'BIÊN BẢN BÀN GIAO VĂN PHÒNG PHẨM')
-    : (settings.PDF_TITLE || 'BIÊN BẢN BÀN GIAO');
+    : isUniform
+      ? (settings.PDF_TITLE_DP || 'BIÊN BẢN BÀN GIAO ĐỒNG PHỤC')
+      : (settings.PDF_TITLE || 'BIÊN BẢN BÀN GIAO');
   var showNational = String(settings.PDF_SHOW_NATIONAL_HEADER || 'TRUE').toUpperCase() !== 'FALSE';
   var logo = settings.LOGO_FILE_ID ? loadImageDataUri_(settings.LOGO_FILE_ID) : '';
 
@@ -186,7 +190,36 @@ function buildHandoverPdfHtml_(rec, items, categoryMap, signatureDataUri, settin
       ' năm ' + Utilities.formatDate(created, APP.TIMEZONE, 'yyyy') + ', hai bên tiến hành bàn giao các nội dung sau:';
 
   var itemsTable;
-  if (isSupply) {
+  if (isUniform) {
+    // Đồng phục: mẫu · size · tình trạng hàng · hình thức (cấp phát / cho mượn + hạn trả) · SL.
+    var uniformRows = items.map(function (item, index) {
+      var kind = item.issueKind === 'CHO_MUON'
+        ? 'Cho mượn' + (item.deadline ? '<div class="detail">Hạn trả: ' + esc(formatDisplayDate_(item.deadline)) + '</div>' : '')
+        : item.issueKind === 'CAP_PHAT' ? 'Cấp phát' : '';
+      return '<tr>' +
+        '<td class="center">' + (index + 1) + '</td>' +
+        '<td><div class="item-title">' + esc(item.itemName) + '</div>' +
+          (item.assetCode ? '<div class="detail muted">Mã hàng: ' + esc(item.assetCode) + '</div>' : '') + '</td>' +
+        '<td class="center"><b>' + esc(item.size || '') + '</b></td>' +
+        '<td class="center">' + esc(item.condition || '') + '</td>' +
+        '<td>' + kind + '</td>' +
+        '<td class="center">' + esc(item.quantity === null ? '' : String(item.quantity)) +
+          (item.unit ? ' <span class="muted">' + esc(item.unit) + '</span>' : '') + '</td>' +
+        '<td>' + multiline(item.note) + '</td>' +
+        '</tr>';
+    }).join('');
+    var totalQty = items.reduce(function (s, i) { return s + (Number(i.quantity) || 0); }, 0);
+    itemsTable = '<table class="items"><thead><tr>' +
+      '<th style="width:28px">STT</th><th>Mẫu đồng phục</th><th style="width:44px">Size</th>' +
+      '<th style="width:80px">Tình trạng</th><th style="width:96px">Hình thức</th><th style="width:52px">SL</th>' +
+      '<th style="width:120px">Ghi chú</th>' +
+      '</tr></thead><tbody>' + uniformRows +
+      '<tr><td colspan="5" class="right"><b>Tổng số lượng</b></td><td class="center"><b>' + totalQty + '</b></td><td></td></tr>' +
+      '</tbody></table>' +
+      (items.some(function (i) { return i.issueKind === 'CHO_MUON'; })
+        ? '<div class="detail muted">Đồ cho mượn phải hoàn trả đúng hạn; hư hỏng / mất xử lý theo quy định của công ty.</div>'
+        : '');
+  } else if (isSupply) {
     var supplyRows = items.map(function (item, index) {
       return '<tr>' +
         '<td class="center">' + (index + 1) + '</td>' +
@@ -255,6 +288,13 @@ function buildHandoverPdfHtml_(rec, items, categoryMap, signatureDataUri, settin
       : '<td></td>') +
     '</tr></table>';
 
+  // Cách người nhận xác thực khi ký (ghi lúc ký — BAN_GIAO.confirm_method).
+  var methodText = rec.confirm_method === CONFIRM_METHODS.OTP_EMAIL
+    ? 'Xác thực khi ký: mã xác nhận (OTP) gửi tới email của người nhận.'
+    : rec.confirm_method === CONFIRM_METHODS.NO_EMAIL || rec.confirm_method === CONFIRM_METHODS.OTP_OFF
+      ? 'Xác thực khi ký: qua link riêng của người nhận (không dùng mã OTP).'
+      : '';
+
   var integrityHtml = rec.content_hash
     ? '<br>Mã toàn vẹn nội dung (SHA-256): <span class="hash">' + esc(rec.content_hash) + '</span>' +
       (rec.signature_sha256 ? '<br>Mã toàn vẹn chữ ký (SHA-256): <span class="hash">' + esc(rec.signature_sha256) + '</span>' : '')
@@ -271,7 +311,7 @@ function buildHandoverPdfHtml_(rec, items, categoryMap, signatureDataUri, settin
       '<td class="party"><h2>Bên giao</h2>' + infoTable(senderLines) + '</td>' +
       '<td class="party"><h2>Bên nhận</h2>' + infoTable(receiverLines) + '</td>' +
     '</tr></table>' +
-    '<h2>' + (isSupply ? 'Danh sách văn phòng phẩm' : 'Nội dung bàn giao') + ' (' + items.length + ')</h2>' +
+    '<h2>' + (isSupply ? 'Danh sách văn phòng phẩm' : isUniform ? 'Danh sách đồng phục' : 'Nội dung bàn giao') + ' (' + items.length + ')</h2>' +
     itemsTable +
     (rec.note ? '<h2>Ghi chú</h2><div class="note-box">' + multiline(rec.note) + '</div>' : '') +
     (rec.receiver_comment ? '<h2>Ý kiến người nhận</h2><div class="note-box">' + multiline(rec.receiver_comment) + '</div>' : '') +
@@ -285,6 +325,7 @@ function buildHandoverPdfHtml_(rec, items, categoryMap, signatureDataUri, settin
         signatureHtml + '<div class="sig-name">' + esc(rec.receiver_name) + '</div>' +
         '<div class="sig-meta">Xác nhận lúc ' + esc(formatDisplayDateTime_(rec.confirmed_at)) + '</div></td>' +
     '</tr></table>' +
+    (methodText ? '<div class="sig-meta" style="margin-top:6px">' + esc(methodText) + '</div>' : '') +
     '<div class="footer">' + esc(settings.PDF_FOOTER || '') +
       '<br>Mã biên bản: ' + esc(rec.handover_code) + ' · Mã tham chiếu: ' + esc(rec.handover_id) +
       ' · Xuất PDF lúc ' + esc(formatDisplayDateTime_(nowIso_())) + ' (giờ Việt Nam)' +

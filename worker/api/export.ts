@@ -3,6 +3,11 @@ import {
   movementListQuerySchema,
   productListQuerySchema,
   proposalListQuerySchema,
+  uniformEmployeesQuerySchema,
+  uniformHoldingsQuerySchema,
+  uniformMovementListQuerySchema,
+  uniformStockQuerySchema,
+  voucherListQuerySchema,
 } from '../../shared/schemas';
 import { requireAdmin } from '../auth/guards';
 import { callGasStream } from '../services/gas';
@@ -30,6 +35,12 @@ const DATASETS: Record<string, (query: Record<string, string>) => unknown> = {
   'stock.csv': (q) => productListQuerySchema.parse(q),
   'movements.csv': (q) => movementListQuerySchema.parse(q),
   'proposals.csv': (q) => proposalListQuerySchema.parse(q),
+  'vpp-vouchers.csv': (q) => voucherListQuerySchema.parse(q),
+  // Đồng phục
+  'uniform-stock.csv': (q) => uniformStockQuerySchema.parse(q),
+  'uniform-movements.csv': (q) => uniformMovementListQuerySchema.parse(q),
+  'uniform-employees.csv': (q) => uniformEmployeesQuerySchema.parse(q),
+  'uniform-holdings.csv': (q) => uniformHoldingsQuerySchema.parse(q),
 };
 
 /** Dòng phong bì của Apps Script (Export.gs) — nội dung CSV đi sau, chuyển thẳng. */

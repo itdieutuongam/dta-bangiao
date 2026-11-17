@@ -8,7 +8,8 @@
  */
 
 var CACHE_KEYS = {
-  EMPLOYEES: 'employees:v1',
+  // v2: kèm giới tính + size đồng phục (cache v1 không có hai trường này).
+  EMPLOYEES: 'employees:v2',
   CATEGORIES: 'categories:v2',
   SETTINGS: 'settings:v1',
   VPP_CATALOG: 'vpp-catalog:v1'
@@ -38,6 +39,8 @@ function apiAdminListEmployees_(data) {
           out.status = e.status;
           var scope = resolveDepartmentScope_(e.department, scopes);
           out.vppScope = scope ? { scopeId: scope.scopeId, scopeName: scope.scopeName, source: scope.source } : null;
+          out.gender = e.gender || '';
+          out.uniformSize = e.uniformSize || '';
         }
         return out;
       })
@@ -67,7 +70,10 @@ function loadEmployeesFromSheet_() {
       department: truncate_(cleanLine_(r.department), 120),
       position: truncate_(cleanLine_(r.position), 120),
       email: truncate_(cleanLine_(r.email), 200).toLowerCase(),
-      status: normalizeEmployeeStatus_(r.status)
+      status: normalizeEmployeeStatus_(r.status),
+      // Hồ sơ đồng phục (cột v3, có thể chưa có trên sheet cũ → ''): giới tính NAM / NU, size thường dùng.
+      gender: dpEmployeeGender_(r.gender),
+      uniformSize: truncate_(cleanLine_(r.uniform_size).toUpperCase(), 20)
     });
   });
   list.sort(function (a, b) { return compareVi_(a.fullName, b.fullName); });

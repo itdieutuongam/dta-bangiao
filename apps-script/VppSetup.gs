@@ -179,7 +179,10 @@ function ensureVppCategory_() {
   return 'LOAI_BAN_GIAO: ' + (parts.length ? parts.join(', ') : 'đã đủ');
 }
 
-/** Dùng chung cho setupDatabase() và upgradeOfficeSupplyModule(). Trả về các dòng báo cáo. */
+/**
+ * Đưa cơ sở dữ liệu lên cấu trúc hiện tại của code (HEADERS, APP.SCHEMA_VERSION) — dùng chung cho setupDatabase(),
+ * upgradeOfficeSupplyModule() và upgradeUniformModule(). Trả về các dòng báo cáo. Tên giữ "V2" để tương thích lời gọi cũ.
+ */
 function ensureSchemaV2_(ss, report) {
   // Code trộn nhiều phiên bản (còn file .gs cũ ghi đè) → không đổi cấu trúc Sheet theo hằng số của bản cũ.
   assertCodeConsistent_();
@@ -188,12 +191,20 @@ function ensureSchemaV2_(ss, report) {
     report.push(backupSpreadsheet_('trước nâng cấp v' + APP.SCHEMA_VERSION));
   }
   Object.keys(HEADERS).forEach(function (name) {
+    // Tiêu đề cột định danh bị gõ đè (ví dụ "norm_id" → "m") → đổi lại tên, KHÔNG thêm cột định danh mới trống.
+    var sheet = ss.getSheetByName(name);
+    if (sheet) {
+      var restored = restoreRenamedIdHeader_(sheet, name);
+      if (restored) report.push(restored);
+    }
     report.push(ensureSheet_(ss, name, HEADERS[name]));
   });
   resetHeaderCache_();
   report.push(seedDefaultCategories_());
   report.push(ensureVppCategory_());
+  report.push(ensureUniformCategory_());
   report.push(seedDefaultSettings_());
+  repairIdColumns_(ss, report);
   setProp_(PROP.SCHEMA_VERSION, String(APP.SCHEMA_VERSION));
   report.push('SCHEMA_VERSION = ' + APP.SCHEMA_VERSION);
   invalidateCaches_();
@@ -238,7 +249,7 @@ function requireSchemaReady_() {
   // APP.SCHEMA_VERSION không phải số (code cũ ghi đè Config) → coi là CHƯA sẵn sàng ("0 < undefined" là false — trước đây lọt qua).
   if (typeof APP.SCHEMA_VERSION !== 'number' || (parseInt(getProp_(PROP.SCHEMA_VERSION), 10) || 0) < APP.SCHEMA_VERSION) {
     throw appError_('NOT_CONFIGURED', 'Cơ sở dữ liệu chưa được nâng cấp lên phiên bản ' + APP.SCHEMA_VERSION +
-      '. Chủ sở hữu Google Sheet hãy chạy menu "DTA Handover → Nâng cấp module Văn phòng phẩm" (upgradeOfficeSupplyModule).');
+      '. Chủ sở hữu Google Sheet hãy chạy menu "DTA Handover → Nâng cấp module Đồng phục (v3)" (upgradeUniformModule).');
   }
   var cache = CacheService.getScriptCache();
   var key = 'schema-ok:' + schemaFingerprint_();

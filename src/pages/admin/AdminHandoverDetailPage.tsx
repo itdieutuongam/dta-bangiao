@@ -16,6 +16,7 @@ import {
   ShieldAlert,
   ShieldCheck,
   Smartphone,
+  Undo2,
 } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { Link, useParams } from 'react-router';
@@ -23,6 +24,9 @@ import { HANDOVER_TYPE_LABELS, isEditableStatus, LIMITS, STATUS_LABELS, type Han
 import type { AdminDetailResponse, AdminHandoverDetail, HistoryEntry, IntegrityInfo } from '../../../shared/types';
 import { copyText } from '../../components/CopyField';
 import { HandoverItemsView } from '../../components/handover/HandoverItemsView';
+import { ReturnDialog } from '../../components/uniform/UniformDialogs';
+import { uniformHoldings } from '../../services/uniformApi';
+import type { UniformHolding } from '../../../shared/uniform';
 import { PartiesView } from '../../components/handover/PartiesView';
 import { Button, ButtonLink } from '../../components/ui/Button';
 import { ConfirmDialog } from '../../components/ui/Dialog';
@@ -117,6 +121,18 @@ function DetailView({
   const [busy, setBusy] = useState<'cancel' | 'regenerate' | 'pdf' | 'regenerate-pdf' | 'reconcile' | null>(null);
   const editable = isEditableStatus(handover.status);
   const isSupply = handover.handoverType === 'OFFICE_SUPPLY';
+  const isUniform = handover.handoverType === 'UNIFORM';
+  const hasStock = isSupply || isUniform;
+  // Phiếu đồng phục đã ký: số đã trả / còn giữ của từng dòng (Mượn / Trả).
+  const holdings = useAsync(
+    (signal) =>
+      isUniform && handover.status === 'CONFIRMED'
+        ? uniformHoldings({ status: 'all', employeeId: handover.receiver.employeeId }, signal)
+        : Promise.resolve(null),
+    [isUniform, handover.status, handover.receiver.employeeId, handover.id],
+  );
+  const [returning, setReturning] = useState<UniformHolding | null>(null);
+  const holdingOf = (itemId: string) => holdings.data?.items.find((h) => h.itemId === itemId && h.handoverId === handover.id);
 
   async function handleReconcile() {
     setBusy('reconcile');
@@ -277,7 +293,7 @@ function DetailView({
               </Button>
             </>
           )}
-          {isSupply && handover.status !== 'CANCELLED' && (
+          {hasStock && handover.status !== 'CANCELLED' && (
             <Button
               variant="ghost"
               size="sm"
@@ -320,7 +336,7 @@ function DetailView({
             <p className="mt-1 break-words whitespace-pre-wrap">{handover.receiverComment}</p>
             <p className="mt-2 text-xs">
               Sửa biên bản để chuyển lại trạng thái “Chờ xác nhận”; người nhận dùng lại link cũ để ký.
-              {isSupply ? ' Số lượng văn phòng phẩm vẫn đang được giữ chỗ.' : ''}
+              {isSupply ? ' Số lượng văn phòng phẩm vẫn đang được giữ chỗ.' : isUniform ? ' Đồng phục vẫn đang được giữ chỗ trong kho.' : ''}
             </p>
           </InlineAlert>
         )}
@@ -384,7 +400,45 @@ function DetailView({
         <h2 id="items-heading" className="section-title mb-3">
           Nội dung bàn giao ({handover.items.length})
         </h2>
-        <HandoverItemsView items={handover.items} categories={categories} showInternal />
+        <HandoverItemsView
+          items={handover.items}
+          categories={categories}
+          showInternal
+          renderExtra={
+            isUniform && handover.status === 'CONFIRMED'
+              ? (item) => {
+                  const h = holdingOf(item.itemId);
+                  if (!h) return holdings.status === 'loading' ? <p className="mt-2 text-xs text-stone-500">Đang tải số đã trả…</p> : null;
+                  return (
+                    <div className="mt-2 flex flex-wrap items-center justify-between gap-2 rounded-lg bg-stone-50 px-3 py-2 text-sm">
+                      <span className={h.overdue ? 'font-semibold text-red-700' : 'text-stone-700'}>
+                        Đã trả / thu hồi {h.returned} / {h.quantity} · còn giữ <strong>{h.outstanding}</strong>
+                        {h.overdue ? ' · QUÁ HẠN TRẢ' : ''}
+                      </span>
+                      {h.outstanding > 0 && (
+                        <Button size="sm" variant="secondary" onClick={() => setReturning(h)} icon={<Undo2 className="size-4" aria-hidden="true" />}>
+                          Ghi nhận trả
+                        </Button>
+                      )}
+                    </div>
+                  );
+                }
+              : undefined
+          }
+        />
+        <ReturnDialog
+          open={returning !== null}
+          holding={returning}
+          onClose={() => setReturning(null)}
+          onDone={(result) => {
+            setReturning(null);
+            toast.show(result.duplicate ? 'Lần ghi nhận này ĐÃ được lưu ở lần gửi trước — không ghi thêm.' : 'Đã ghi nhận trả / thu hồi đồng phục.');
+            holdings.reload();
+            refreshBadges();
+            onReload();
+          }}
+          onStale={holdings.reload}
+        />
         {handover.note && (
           <div className="mt-4 rounded-lg border border-stone-200 bg-stone-50 p-3.5">
             <p className="text-xs font-semibold tracking-wide text-stone-500 uppercase">Ghi chú</p>
@@ -514,6 +568,10 @@ const SEAL_TEXT: Record<IntegrityChecks['seal'], { text: string; state: 'ok' | '
   OK: { text: 'Niêm phong: khớp.', state: 'ok' },
   MISMATCH: {
     text: 'Niêm phong: KHÔNG khớp — dữ liệu đã bị sửa rồi tính lại mã (hoặc khóa RECORD_SEAL_SECRET trên Cloudflare đã bị đổi).',
+    state: 'bad',
+  },
+  MISSING: {
+    text: 'Niêm phong: BỊ XÓA — biên bản ký khi đã có khóa niêm phong nhưng ô record_seal trên Sheet đang trống (xóa để che dữ liệu đã sửa).',
     state: 'bad',
   },
   UNVERIFIED: { text: 'Niêm phong: chưa kiểm tra được — Worker hiện không có khóa RECORD_SEAL_SECRET.', state: 'none' },

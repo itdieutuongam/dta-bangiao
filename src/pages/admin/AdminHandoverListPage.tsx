@@ -1,8 +1,8 @@
-import { ChevronLeft, ChevronRight, Filter, RotateCcw, Search } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Filter, MessageSquareText, RotateCcw, Search } from 'lucide-react';
 import { useEffect, useState, type FormEvent } from 'react';
 import { Link, useSearchParams } from 'react-router';
 import { HANDOVER_STATUSES, HANDOVER_TYPE_LABELS, HANDOVER_TYPES, STATUS_LABELS, type HandoverStatus } from '../../../shared/constants';
-import type { AdminListResponse, Category, HandoverStats } from '../../../shared/types';
+import type { AdminHandoverSummary, AdminListResponse, Category, HandoverStats } from '../../../shared/types';
 import { ExportCsvButton } from '../../components/ExportCsvButton';
 import { Button, ButtonLink } from '../../components/ui/Button';
 import { EmptyState, ErrorState, Skeleton } from '../../components/ui/States';
@@ -246,6 +246,7 @@ function ListBody({
                 </td>
                 <td className="px-4 py-3">
                   <StatusBadge status={h.status} />
+                  <CommentHint summary={h} />
                 </td>
               </tr>
             ))}
@@ -271,11 +272,33 @@ function ListBody({
                   .filter(Boolean)
                   .join(' · ')}
               </p>
+              <CommentHint summary={h} />
             </Link>
           </li>
         ))}
       </ul>
     </>
+  );
+}
+
+/** Ghi chú / yêu cầu sửa của người nhận — biên bản ĐÃ KÝ kèm ghi chú dễ bị bỏ sót (ghi chú có thể trái nội dung đã ký). */
+function CommentHint({ summary }: { summary: AdminHandoverSummary }) {
+  const comment = summary.receiverComment?.trim();
+  if (!comment || (summary.status !== 'CONFIRMED' && summary.status !== 'REVISION_REQUESTED')) return null;
+  return (
+    <span
+      className={cn(
+        'mt-1 flex max-w-56 items-start gap-1 text-xs',
+        summary.status === 'CONFIRMED' ? 'text-sky-800' : 'text-orange-800',
+      )}
+      title={comment}
+    >
+      <MessageSquareText className="mt-0.5 size-3.5 shrink-0" aria-hidden="true" />
+      <span className="line-clamp-2 break-words">
+        <span className="sr-only">{summary.status === 'CONFIRMED' ? 'Ghi chú khi ký: ' : 'Yêu cầu sửa: '}</span>
+        {comment}
+      </span>
+    </span>
   );
 }
 

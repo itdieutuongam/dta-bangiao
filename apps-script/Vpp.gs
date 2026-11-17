@@ -123,8 +123,37 @@ function createProduct_(fields, actor, now) {
 }
 
 // ============================================================================
-// Tồn kho
+// Tồn kho — bộ máy dùng chung cho nhiều "kho"
 // ============================================================================
+
+/**
+ * "Kho" dùng chung bộ máy sổ biến động bên dưới: VPP (văn phòng phẩm) và UNIFORM (đồng phục, Uniform.gs). Mỗi kho có sheet tồn,
+ * sổ biến động, danh mục mặt hàng và dấu "đang ghi dở" riêng; cùng quy tắc (sổ là nguồn sự thật, ghi sổ trước, đồng bộ hội tụ theo
+ * operation_id, không âm tồn). Mọi hàm kho nhận tham số store tùy chọn — không truyền = VPP (giữ nguyên hành vi cũ).
+ * loadProductMap() trả { productId: { productName, productCode, unit, minimumStock } } để ghi tên / kiểm tra ĐVT / tồn tối thiểu.
+ */
+function stockStore_(key) {
+  if (key && typeof key === 'object') return key;
+  if (key === 'UNIFORM') {
+    return {
+      key: 'UNIFORM', label: 'đồng phục', stockSheet: SHEETS.DP_STOCK, movementSheet: SHEETS.DP_MOVEMENTS,
+      dirtyProp: PROP.DP_STOCK_DIRTY, historyEntity: 'DP_SKU', syncedAction: 'DP_STOCK_SYNCED', handoverType: 'UNIFORM',
+      loadProductMap: function () { return dpSkuInfoMap_(); }
+    };
+  }
+  return {
+    key: 'VPP', label: 'văn phòng phẩm', stockSheet: SHEETS.VPP_STOCK, movementSheet: SHEETS.VPP_MOVEMENTS,
+    dirtyProp: PROP.VPP_STOCK_DIRTY, historyEntity: 'VPP_PRODUCT', syncedAction: 'VPP_STOCK_SYNCED', handoverType: 'OFFICE_SUPPLY',
+    loadProductMap: function () { return loadProductMap_(); }
+  };
+}
+
+/** Kho của một loại phiếu (OFFICE_SUPPLY → VPP, UNIFORM → đồng phục); loại khác → null (không đụng kho). */
+function stockStoreForHandoverType_(type) {
+  if (type === 'OFFICE_SUPPLY') return stockStore_('VPP');
+  if (type === 'UNIFORM') return stockStore_('UNIFORM');
+  return null;
+}
 
 function stockFromRow_(r) {
   var needsReview = toBool_(r.needs_review);
@@ -150,9 +179,9 @@ function stockFromRow_(r) {
   };
 }
 
-function loadStockMap_() {
+function loadStockMap_(store) {
   var map = {};
-  readTable_(SHEETS.VPP_STOCK).rows.forEach(function (r) {
+  readTable_(stockStore_(store).stockSheet).rows.forEach(function (r) {
     var s = stockFromRow_(r);
     if (isUuid_(s.productId) && !map[s.productId]) map[s.productId] = s;
   });
@@ -206,17 +235,18 @@ function productView_(p, stock) {
   };
 }
 
-/** Đảm bảo mỗi sản phẩm có 1 dòng VPP_TON_KHO (sản phẩm mới: tồn 0). Trả về map tồn mới nhất. Gọi trong khóa. */
-function ensureStockRows_(productIds, actor, now) {
-  var map = loadStockMap_();
+/** Đảm bảo mỗi sản phẩm có 1 dòng tồn (VPP_TON_KHO / DP_TON_KHO; mặt hàng mới: tồn 0). Trả về map tồn mới nhất. Gọi trong khóa. */
+function ensureStockRows_(productIds, actor, now, store) {
+  store = stockStore_(store);
+  var map = loadStockMap_(store);
   var products = null;
   var missing = [];
   productIds.forEach(function (pid) {
     if (!map[pid] && missing.indexOf(pid) < 0) missing.push(pid);
   });
   if (!missing.length) return map;
-  products = loadProductMap_();
-  appendObjects_(SHEETS.VPP_STOCK, missing.map(function (pid) {
+  products = store.loadProductMap();
+  appendObjects_(store.stockSheet, missing.map(function (pid) {
     var p = products[pid];
     return {
       product_id: pid,
@@ -229,14 +259,14 @@ function ensureStockRows_(productIds, actor, now) {
       updated_by: actor ? actorLabel_(actor) : ''
     };
   }));
-  return loadStockMap_();
+  return loadStockMap_(store);
 }
 
 function stockError_(code, message, details) {
   return appError_(code, message, details);
 }
 
-/** Một dòng VPP_BIEN_DONG_KHO. */
+/** Một dòng sổ biến động (VPP_BIEN_DONG_KHO / DP_BIEN_DONG_KHO — cột không có trong sheet của kho đó được bỏ qua). */
 function movementRow_(pid, type, quantity, before, after, m, actor, now) {
   return {
     movement_id: uuid_(),
@@ -253,7 +283,12 @@ function movementRow_(pid, type, quantity, before, after, m, actor, now) {
     actor_id: actor.id || '',
     actor_name: actor.name || '',
     reason: truncate_(m.reason || '', 1000),
-    created_at: now
+    created_at: now,
+    employee_id: m.employeeId || '',
+    return_id: m.returnId || '',
+    voucher_id: m.voucherId || '',
+    unit_price: m.unitPrice === null || m.unitPrice === undefined ? '' : m.unitPrice,
+    department: m.department || ''
   };
 }
 
@@ -288,11 +323,11 @@ function stockBaseFromLedger_(current, ledgerEntry) {
  * (chỉ kiểm kê được). Trước đây phần kiểm tra đọc số trên sheet: sheet cũ / sửa tay → kiểm tra cho qua, rồi bước giữ chỗ (theo sổ)
  * báo "không đủ tồn" SAU KHI phiếu đã được ghi — phiếu lưu mà không giữ chỗ, người nhận vẫn ký được.
  */
-function allocationStockMap_(productIds) {
+function allocationStockMap_(productIds, store) {
   requireLock_('allocationStockMap_');
-  healDirtyStock_();
-  var stockMap = loadStockMap_();
-  var ledger = stockFromLedger_(productIds);
+  healDirtyStock_(store);
+  var stockMap = loadStockMap_(store);
+  var ledger = stockFromLedger_(productIds, store);
   var out = {};
   productIds.forEach(function (pid) {
     var base = stockBaseFromLedger_(stockMap[pid] || { onHand: 0, reserved: 0 }, ledger[pid]);
@@ -305,8 +340,8 @@ function allocationStockMap_(productIds) {
  * Bản đọc (không khóa, không ghi) cho các trang xem: số tồn / giữ chỗ theo SỔ biến động thay cho số trên sheet — đúng số mà thao
  * tác ghi sẽ dùng (ví dụ form tạo phiếu không hiện "khả dụng 10" khi thực tế theo sổ chỉ còn 7). Trả về bản sao stockMap.
  */
-function ledgerStockMap_(stockMap, productIds) {
-  var ledger = stockFromLedger_(productIds);
+function ledgerStockMap_(stockMap, productIds, store) {
+  var ledger = stockFromLedger_(productIds, store);
   var out = {};
   Object.keys(stockMap).forEach(function (pid) {
     var s = stockMap[pid];
@@ -321,8 +356,8 @@ function ledgerStockMap_(stockMap, productIds) {
 }
 
 /** Số tồn theo sổ (đúng như applyStockMovements_ sẽ dùng) — để kiểm tra trước khi ghi (ghép, kiểm kê). */
-function effectiveStockMap_(productIds, stockMap) {
-  var ledger = stockFromLedger_(productIds);
+function effectiveStockMap_(productIds, stockMap, store) {
+  var ledger = stockFromLedger_(productIds, store);
   var out = {};
   productIds.forEach(function (pid) {
     if (!stockMap[pid]) return;
@@ -340,7 +375,12 @@ function effectiveStockMap_(productIds, stockMap) {
  *   RELEASE:      reserved −= quantity
  *   OUT:          on_hand −= quantity, reserved −= quantity
  *   ADJUSTMENT:   on_hand = setTo (hoặc on_hand += quantity); không thấp hơn reserved
+ *   RETURN:       on_hand += quantity (đồng phục nhân viên trả lại)
+ *   DISPOSE:      on_hand −= quantity (thanh lý / hủy) — không thấp hơn reserved
+ *   ISSUE:        on_hand −= quantity (VPP xuất kho trực tiếp theo phiếu xuất) — không thấp hơn reserved
+ * Phần tử có thể kèm voucherId / unitPrice / department (dòng phiếu nhập / xuất kho VPP).
  * reason có thể là hàm (tồn trước biến động) → chuỗi: kiểm kê ghi "hệ thống X → thực tế Y" theo đúng số đã khớp sổ.
+ * store: kho (stockStore_) — không truyền = văn phòng phẩm.
  *
  * SỔ BIẾN ĐỘNG là nguồn sự thật, dòng VPP_TON_KHO chỉ là số tổng hợp — số tồn dùng để tính / kiểm tra lấy theo sổ:
  *   • sản phẩm đã có biến động mà dòng tồn khác sổ (sửa tay Sheet, ghi dở) → dùng số theo sổ, ghi lịch sử VPP_STOCK_SYNCED
@@ -349,17 +389,18 @@ function effectiveStockMap_(productIds, stockMap) {
  *     để sổ và dòng tồn luôn khớp (đồng bộ / kiểm kê sau này không làm mất số đó).
  * Không bao giờ để tồn âm. Trả về { productId: { onHand, reserved, available, minimumStock } } sau khi ghi.
  */
-function applyStockMovements_(moves, actor, now) {
+function applyStockMovements_(moves, actor, now, store) {
   requireLock_('applyStockMovements_');
   if (!moves || !moves.length) return {};
-  healDirtyStock_(); // lần ghi trước lỗi giữa chừng → sửa số tồn theo sổ trước khi tính tiếp
+  store = stockStore_(store);
+  healDirtyStock_(store); // lần ghi trước lỗi giữa chừng → sửa số tồn theo sổ trước khi tính tiếp
   now = now || nowIso_();
   actor = actor || { id: 'system', name: 'Hệ thống' };
   var ids = [];
   moves.forEach(function (m) { if (ids.indexOf(m.productId) < 0) ids.push(m.productId); });
-  var stockMap = ensureStockRows_(ids, actor, now);
-  var ledger = stockFromLedger_(ids);
-  var products = loadProductMap_();
+  var stockMap = ensureStockRows_(ids, actor, now, store);
+  var ledger = stockFromLedger_(ids, store);
+  var products = store.loadProductMap();
   // Sổ cho ra số không hợp lệ (tồn âm / tồn < giữ chỗ — sổ bị sửa tay): chỉ cho kiểm kê (ADJUSTMENT) để sửa lại.
   var adjustOnly = {};
   ids.forEach(function (pid) { adjustOnly[pid] = true; });
@@ -388,7 +429,7 @@ function applyStockMovements_(moves, actor, now) {
       rows.push(movementRow_(pid, MOVEMENT_TYPES.INITIAL, base.onHand, { onHand: 0, reserved: 0 },
         { onHand: base.onHand, reserved: 0 }, {
           operationId: 'ADOPT:' + pid,
-          reason: 'Ghi vào sổ biến động số tồn đang có trên sheet VPP_TON_KHO (nhập tay, chưa có biến động nào)'
+          reason: 'Ghi vào sổ biến động số tồn đang có trên sheet ' + store.stockSheet + ' (nhập tay, chưa có biến động nào)'
         }, actor, now));
     }
     state[pid] = {
@@ -409,9 +450,10 @@ function applyStockMovements_(moves, actor, now) {
     switch (m.type) {
       case MOVEMENT_TYPES.INITIAL:
       case MOVEMENT_TYPES.IN:
+      case MOVEMENT_TYPES.RETURN:
         if (!(q > 0)) throw stockError_('VALIDATION_ERROR', 'Số lượng nhập phải lớn hơn 0.');
         if (s.onHand === null) {
-          if (m.type === MOVEMENT_TYPES.IN) {
+          if (m.type !== MOVEMENT_TYPES.INITIAL) {
             throw stockError_('STOCK_UNKNOWN', 'Tồn kho của "' + name + '" chưa xác định — hãy kiểm kê (điều chỉnh) trước khi nhập.');
           }
           s.onHand = 0;
@@ -442,6 +484,33 @@ function applyStockMovements_(moves, actor, now) {
         s.onHand -= q;
         s.reserved -= q;
         break;
+      case MOVEMENT_TYPES.DISPOSE:
+        if (!(q > 0)) throw stockError_('VALIDATION_ERROR', 'Số lượng thanh lý phải lớn hơn 0.');
+        if (s.onHand === null) {
+          throw stockError_('STOCK_UNKNOWN', 'Tồn kho của "' + name + '" chưa xác định — hãy kiểm kê trước khi thanh lý.');
+        }
+        if (s.onHand - s.reserved < q) {
+          var free = Math.max(0, s.onHand - s.reserved);
+          throw stockError_('INSUFFICIENT_STOCK', 'Không đủ hàng để thanh lý "' + name + '". Khả dụng (tồn − đang giữ chỗ): ' + free +
+            ', yêu cầu: ' + q + '.', { shortages: [{ productId: pid, productName: name, available: free, requested: q, shortage: q - free }] });
+        }
+        s.onHand -= q;
+        break;
+      case MOVEMENT_TYPES.ISSUE:
+        // Xuất kho trực tiếp (phiếu xuất): trừ tồn, không đụng số đang giữ chỗ cho phiếu chờ ký → chỉ xuất được phần khả dụng.
+        if (!(q > 0)) throw stockError_('VALIDATION_ERROR', 'Số lượng xuất phải lớn hơn 0.');
+        if (s.onHand === null) {
+          throw stockError_('STOCK_UNKNOWN', 'Tồn kho của "' + name + '" chưa xác định — hãy kiểm kê trước khi xuất.',
+            { shortages: [{ productId: pid, productName: name, available: 0, requested: q, shortage: q }] });
+        }
+        if (s.onHand - s.reserved < q) {
+          var issuable = Math.max(0, s.onHand - s.reserved);
+          throw stockError_('INSUFFICIENT_STOCK', 'Không đủ hàng để xuất "' + name + '". Khả dụng (tồn − đang giữ chỗ cho phiếu chờ ký): ' +
+            issuable + ', yêu cầu: ' + q + ', thiếu: ' + (q - issuable) + '.',
+            { shortages: [{ productId: pid, productName: name, available: issuable, requested: q, shortage: q - issuable }] });
+        }
+        s.onHand -= q;
+        break;
       case MOVEMENT_TYPES.ADJUSTMENT:
         var base = s.onHand === null ? 0 : s.onHand;
         var target = m.setTo !== undefined && m.setTo !== null ? Number(m.setTo) : base + q;
@@ -465,7 +534,8 @@ function applyStockMovements_(moves, actor, now) {
     s.changed = true;
     rows.push(movementRow_(pid, m.type, recorded, before, { onHand: s.onHand, reserved: s.reserved }, {
       handoverId: m.handoverId, proposalId: m.proposalId, operationId: m.operationId,
-      reason: typeof m.reason === 'function' ? m.reason(before.onHand) : m.reason
+      reason: typeof m.reason === 'function' ? m.reason(before.onHand) : m.reason,
+      employeeId: m.employeeId, returnId: m.returnId, voucherId: m.voucherId, unitPrice: m.unitPrice, department: m.department
     }, actor, now));
   });
 
@@ -473,23 +543,23 @@ function applyStockMovements_(moves, actor, now) {
   // trước khi bắt đầu: lỗi ở bất kỳ bước nào → dấu còn lại → lần ghi kho sau tính lại tồn các sản phẩm này từ sổ.
   // (Ngược lại — tồn ghi trước, sổ lỗi — thì lần thử lại sẽ giữ chỗ / trừ kho 2 lần mà không phát hiện được.)
   var changedIds = Object.keys(state).filter(function (pid) { return state[pid].changed; });
-  markStockDirty_(changedIds);
-  appendObjects_(SHEETS.VPP_MOVEMENTS, rows);
+  markStockDirty_(changedIds, store);
+  appendObjects_(store.movementSheet, rows);
   changedIds.forEach(function (pid) {
     var s = state[pid];
     var changes = { on_hand: s.onHand === null ? '' : s.onHand, reserved: s.reserved, updated_at: now, updated_by: actorLabel_(actor) };
     if (s.reviewChanged) changes.needs_review = boolCell_(s.needsReview);
-    updateRowFields_(SHEETS.VPP_STOCK, s.record._row, s.record._record, changes);
+    updateRowFields_(store.stockSheet, s.record._row, s.record._record, changes);
   });
   SpreadsheetApp.flush(); // xóa dấu "đang ghi" chỉ khi số tồn đã thật sự được lưu
-  clearStockDirty_();
+  clearStockDirty_(store);
   resynced.forEach(function (r) {
     afterCommit_('stock_resync_history', r.productId, function () {
-      appendHistory_(r.productId, 'VPP_STOCK_SYNCED', actorLabel_(actor), '', '',
-        'Số trên sheet VPP_TON_KHO (tồn ' + (r.sheet.onHand === null ? 'chưa rõ' : r.sheet.onHand) + ', giữ chỗ ' + r.sheet.reserved +
+      appendHistory_(r.productId, store.syncedAction, actorLabel_(actor), '', '',
+        'Số trên sheet ' + store.stockSheet + ' (tồn ' + (r.sheet.onHand === null ? 'chưa rõ' : r.sheet.onHand) + ', giữ chỗ ' + r.sheet.reserved +
           ') khác sổ biến động (tồn ' + (r.ledger.onHand === null ? 'chưa rõ' : r.ledger.onHand) + ', giữ chỗ ' + r.ledger.reserved +
           ') — đã dùng số theo sổ khi ghi biến động kho.',
-        { sheet: r.sheet, ledger: r.ledger }, 'VPP_PRODUCT');
+        { sheet: r.sheet, ledger: r.ledger }, store.historyEntity);
     });
   });
 
@@ -507,42 +577,45 @@ function applyStockMovements_(moves, actor, now) {
 }
 
 /** Biến động đã có với operation_id này chưa (chống ghi 2 lần cho thao tác không gắn với phiếu). */
-function operationExists_(operationId) {
+function operationExists_(operationId, store) {
   if (!operationId) return false;
-  return findRows_(SHEETS.VPP_MOVEMENTS, 'operation_id', operationId).length > 0;
+  return findRows_(stockStore_(store).movementSheet, 'operation_id', operationId).length > 0;
 }
 
 // ============================================================================
 // Toàn vẹn kho: sổ biến động ↔ số tồn tổng hợp
 // ============================================================================
 
-function markStockDirty_(productIds) {
-  if (productIds.length) setProp_(PROP.VPP_STOCK_DIRTY, JSON.stringify(productIds));
+function markStockDirty_(productIds, store) {
+  if (productIds.length) setProp_(stockStore_(store).dirtyProp, JSON.stringify(productIds));
 }
 
-function clearStockDirty_() {
-  PropertiesService.getScriptProperties().deleteProperty(PROP.VPP_STOCK_DIRTY);
+function clearStockDirty_(store) {
+  PropertiesService.getScriptProperties().deleteProperty(stockStore_(store).dirtyProp);
 }
 
 /**
  * Tồn tính lại từ sổ biến động (cộng dồn quantity theo loại): { productId: { onHand, reserved, count } }.
  * Chỉ có sản phẩm đã có biến động (sản phẩm chưa có biến động: dòng tồn là gốc). productIds = null → mọi sản phẩm.
  */
-function stockFromLedger_(productIds) {
+function stockFromLedger_(productIds, store) {
   var wanted = null;
   if (productIds) {
     wanted = {};
     productIds.forEach(function (pid) { wanted[String(pid).toLowerCase()] = true; });
   }
   var out = {};
-  readColumns_(SHEETS.VPP_MOVEMENTS, ['product_id', 'movement_type', 'quantity']).forEach(function (m) {
+  readColumns_(stockStore_(store).movementSheet, ['product_id', 'movement_type', 'quantity']).forEach(function (m) {
     var pid = String(m.product_id || '').toLowerCase();
     if (!isUuid_(pid) || (wanted && !wanted[pid])) return;
     var q = Number(m.quantity) || 0;
     var s = out[pid] || (out[pid] = { onHand: 0, reserved: 0, count: 0 });
     s.count++;
-    if (m.movement_type === MOVEMENT_TYPES.INITIAL || m.movement_type === MOVEMENT_TYPES.IN || m.movement_type === MOVEMENT_TYPES.ADJUSTMENT) {
+    if (m.movement_type === MOVEMENT_TYPES.INITIAL || m.movement_type === MOVEMENT_TYPES.IN ||
+        m.movement_type === MOVEMENT_TYPES.ADJUSTMENT || m.movement_type === MOVEMENT_TYPES.RETURN) {
       s.onHand += q;
+    } else if (m.movement_type === MOVEMENT_TYPES.DISPOSE || m.movement_type === MOVEMENT_TYPES.ISSUE) {
+      s.onHand -= q;
     } else if (m.movement_type === MOVEMENT_TYPES.RESERVE) {
       s.reserved += q;
     } else if (m.movement_type === MOVEMENT_TYPES.RELEASE) {
@@ -559,10 +632,11 @@ function stockFromLedger_(productIds) {
  * Sản phẩm có số tồn (VPP_TON_KHO) khác sổ biến động — do ghi dở hoặc ai đó sửa tay Sheet. Gồm cả sản phẩm CHƯA có biến động
  * nào mà dòng tồn có số (ledger.movements = 0: thường là tồn đầu kỳ nhập tay — chỉ kiểm kê, không đồng bộ theo sổ được).
  */
-function stockLedgerDrifts_() {
-  var ledger = stockFromLedger_(null);
-  var stock = loadStockMap_();
-  var products = loadProductMap_();
+function stockLedgerDrifts_(store) {
+  store = stockStore_(store);
+  var ledger = stockFromLedger_(null, store);
+  var stock = loadStockMap_(store);
+  var products = store.loadProductMap();
   var ids = Object.keys(ledger);
   Object.keys(stock).forEach(function (pid) {
     var s = stock[pid];
@@ -591,12 +665,13 @@ function stockLedgerDrifts_() {
  * trả trong skipped để quản trị viên kiểm kê. Sản phẩm chưa có biến động nào không bao giờ bị đụng tới.
  * Trả về { healed: [productId], skipped: [{ productId, ledger }] }.
  */
-function healStockFromLedger_(productIds, actor, why) {
+function healStockFromLedger_(productIds, actor, why, store) {
   requireLock_('healStockFromLedger_');
+  store = stockStore_(store);
   var out = { healed: [], skipped: [] };
   if (!productIds.length) return out;
-  var ledger = stockFromLedger_(productIds);
-  var stock = ensureStockRows_(Object.keys(ledger), actor, nowIso_());
+  var ledger = stockFromLedger_(productIds, store);
+  var stock = ensureStockRows_(Object.keys(ledger), actor, nowIso_(), store);
   var now = nowIso_();
   Object.keys(ledger).forEach(function (pid) {
     var l = ledger[pid];
@@ -607,19 +682,20 @@ function healStockFromLedger_(productIds, actor, why) {
       out.skipped.push({ productId: pid, ledger: { onHand: l.onHand, reserved: l.reserved } });
       return;
     }
-    updateRowFields_(SHEETS.VPP_STOCK, s._row, s._record, { on_hand: l.onHand, reserved: l.reserved, updated_at: now, updated_by: actorLabel_(actor) });
-    appendHistory_(pid, 'VPP_STOCK_SYNCED', actorLabel_(actor), '', '',
+    updateRowFields_(store.stockSheet, s._row, s._record, { on_hand: l.onHand, reserved: l.reserved, updated_at: now, updated_by: actorLabel_(actor) });
+    appendHistory_(pid, store.syncedAction, actorLabel_(actor), '', '',
       why + ': tồn ' + (s.onHand === null ? 'chưa rõ' : s.onHand) + ' → ' + l.onHand + ', giữ chỗ ' + s.reserved + ' → ' + l.reserved + '.',
-      { sheet: { onHand: s.onHand, reserved: s.reserved }, ledger: { onHand: l.onHand, reserved: l.reserved } }, 'VPP_PRODUCT');
-    logInfo_('stock.synced', { productId: pid, why: why });
+      { sheet: { onHand: s.onHand, reserved: s.reserved }, ledger: { onHand: l.onHand, reserved: l.reserved } }, store.historyEntity);
+    logInfo_('stock.synced', { store: store.key, productId: pid, why: why });
     out.healed.push(pid);
   });
   return out;
 }
 
-/** Lần ghi kho trước lỗi giữa chừng (còn dấu VPP_STOCK_DIRTY) → tính lại tồn các sản phẩm đó từ sổ. Gọi trong khóa. */
-function healDirtyStock_() {
-  var raw = getProp_(PROP.VPP_STOCK_DIRTY);
+/** Lần ghi kho trước lỗi giữa chừng (còn dấu VPP_STOCK_DIRTY / DP_STOCK_DIRTY) → tính lại tồn các mặt hàng đó từ sổ. Gọi trong khóa. */
+function healDirtyStock_(store) {
+  store = stockStore_(store);
+  var raw = getProp_(store.dirtyProp);
   if (!raw) return [];
   var ids;
   try {
@@ -628,18 +704,20 @@ function healDirtyStock_() {
     logError_('stock.dirty_corrupt', e);
     ids = null;
   }
-  if (!Array.isArray(ids)) ids = Object.keys(loadStockMap_()); // dấu hỏng → kiểm tra mọi sản phẩm (an toàn hơn bỏ qua)
-  var result = healStockFromLedger_(ids, { id: 'system', name: 'Hệ thống' }, 'Tự đồng bộ theo sổ biến động sau lần ghi kho bị lỗi giữa chừng');
-  // Sản phẩm sổ không hợp lệ (skipped) vẫn hiện ở "Dữ liệu cần kiểm tra → Tồn kho lệch sổ" cho tới khi được kiểm kê.
+  if (!Array.isArray(ids)) ids = Object.keys(loadStockMap_(store)); // dấu hỏng → kiểm tra mọi mặt hàng (an toàn hơn bỏ qua)
+  var result = healStockFromLedger_(ids, { id: 'system', name: 'Hệ thống' },
+    'Tự đồng bộ theo sổ biến động sau lần ghi kho bị lỗi giữa chừng', store);
+  // Mặt hàng sổ không hợp lệ (skipped) vẫn hiện ở mục "Tồn kho lệch sổ" cho tới khi được kiểm kê.
   SpreadsheetApp.flush(); // xóa dấu chỉ khi số tồn đã sửa thật sự được lưu
-  clearStockDirty_();
+  clearStockDirty_(store);
   return result.healed;
 }
 
 /** Dùng ở các trang đọc (tổng quan kho, dữ liệu cần kiểm tra): chỉ lấy khóa khi thật sự có dấu ghi dở. */
-function healDirtyStockIfNeeded_() {
-  if (!getProp_(PROP.VPP_STOCK_DIRTY)) return;
-  withScriptLock_(healDirtyStock_);
+function healDirtyStockIfNeeded_(store) {
+  store = stockStore_(store);
+  if (!getProp_(store.dirtyProp)) return;
+  withScriptLock_(function () { return healDirtyStock_(store); });
 }
 
 /** Admin: đồng bộ số tồn của một sản phẩm theo sổ biến động (mục "Tồn kho lệch sổ" trong Dữ liệu cần kiểm tra). */
@@ -788,9 +866,9 @@ function vppPrepareSupplyItems_(supplies) {
 }
 
 /** Lượng đang giữ chỗ / đã xuất của một phiếu, tính từ các dòng biến động gắn handover_id. */
-function handoverStockNet_(handoverId) {
+function handoverStockNet_(handoverId, store) {
   var net = {};
-  findRows_(SHEETS.VPP_MOVEMENTS, 'handover_id', handoverId).forEach(function (m) {
+  findRows_(stockStore_(store).movementSheet, 'handover_id', handoverId).forEach(function (m) {
     var r = m.record;
     var pid = String(r.product_id || '').toLowerCase();
     var q = Math.abs(toIntOrNull_(r.quantity) || 0);
@@ -884,11 +962,13 @@ function stockWarnings_(after, products) {
 }
 
 /**
- * Đồng bộ kho theo trạng thái + nội dung hiện tại của phiếu VPP (idempotent). Gọi trong khóa.
+ * Đồng bộ kho theo trạng thái + nội dung hiện tại của phiếu VPP / đồng phục (idempotent). Gọi trong khóa.
  * opLabel: HANDOVER_RESERVE / HANDOVER_UPDATE / HANDOVER_CANCEL / HANDOVER_CONFIRM / HANDOVER_RECONCILE.
+ * store: kho của phiếu (stockStoreForHandoverType_) — không truyền = văn phòng phẩm.
  */
-function syncHandoverStock_(rec, items, actor, opLabel) {
+function syncHandoverStock_(rec, items, actor, opLabel, store) {
   requireLock_('syncHandoverStock_');
+  store = stockStore_(store);
   var id = rec.handover_id;
   var desired = {};
   (items || []).forEach(function (i) {
@@ -896,7 +976,7 @@ function syncHandoverStock_(rec, items, actor, opLabel) {
     desired[i.productId] = (desired[i.productId] || 0) + i.quantity;
   });
   var status = rec.status;
-  var net = handoverStockNet_(id);
+  var net = handoverStockNet_(id, store);
   var pids = Object.keys(desired);
   Object.keys(net).forEach(function (pid) { if (pids.indexOf(pid) < 0) pids.push(pid); });
   var moves = [];
@@ -930,20 +1010,22 @@ function syncHandoverStock_(rec, items, actor, opLabel) {
     HANDOVER_CONFIRM: 'Xuất kho — người nhận ký xác nhận phiếu ' + rec.handover_code,
     HANDOVER_RECONCILE: 'Đối soát kho theo phiếu ' + rec.handover_code
   };
+  var employeeId = rec.receiver_employee_id || '';
   var after = applyStockMovements_(moves.map(function (m) {
     m.handoverId = id;
     m.operationId = opId;
     m.reason = reasons[opLabel] || opLabel;
+    m.employeeId = employeeId;
     return m;
-  }), actor, nowIso_());
+  }), actor, nowIso_(), store);
   var reservedIds = {};
   moves.forEach(function (m) { if (m.type === MOVEMENT_TYPES.RESERVE) reservedIds[m.productId] = true; });
   var relevant = {};
   Object.keys(after).forEach(function (pid) { if (reservedIds[pid]) relevant[pid] = after[pid]; });
-  return stockWarnings_(relevant, loadProductMap_());
+  return stockWarnings_(relevant, store.loadProductMap());
 }
 
-/** Admin: đối soát kho cho một phiếu VPP (sửa lệch sau sự cố ghi dở). */
+/** Admin: đối soát kho cho một phiếu văn phòng phẩm / đồng phục (sửa lệch sau sự cố ghi dở). */
 function apiVppReconcileHandover_(data) {
   var id = requireHandoverId_(data.id);
   var actor = sanitizeActor_(data.actor);
@@ -951,10 +1033,9 @@ function apiVppReconcileHandover_(data) {
     var found = findHandoverById_(id);
     if (!found) throw appError_('NOT_FOUND', 'Không tìm thấy biên bản.');
     var items = loadItems_(id, found.record);
-    if (effectiveHandoverType_(found.record, items) !== 'OFFICE_SUPPLY') {
-      throw appError_('INVALID_STATE', 'Chỉ đối soát kho cho phiếu văn phòng phẩm.');
-    }
-    var warnings = syncHandoverStock_(found.record, items, actor, 'HANDOVER_RECONCILE');
+    var store = stockStoreForHandoverType_(effectiveHandoverType_(found.record, items));
+    if (!store) throw appError_('INVALID_STATE', 'Chỉ đối soát kho cho phiếu văn phòng phẩm hoặc đồng phục.');
+    var warnings = syncHandoverStock_(found.record, items, actor, 'HANDOVER_RECONCILE', store);
     return { reconciled: true, warnings: warnings };
   });
 }
@@ -1333,8 +1414,8 @@ function apiVppStockIn_(data) {
 }
 
 /** Dòng biến động kho đầu tiên của một mã thao tác (null: chưa ghi). */
-function priorOperation_(operationId) {
-  var rows = operationId ? findRows_(SHEETS.VPP_MOVEMENTS, 'operation_id', operationId) : [];
+function priorOperation_(operationId, store) {
+  var rows = operationId ? findRows_(stockStore_(store).movementSheet, 'operation_id', operationId) : [];
   return rows.length ? rows[0].record : null;
 }
 
@@ -1418,7 +1499,7 @@ function apiVppListMovements_(q) {
     if (to && day > to) return false;
     if (needle) {
       var p = products[String(r.product_id).toLowerCase()];
-      var hay = normalizeText_([p ? p.productName : '', p ? p.productCode : '', r.reason, r.actor_name, r.operation_id].join(' '));
+      var hay = normalizeText_([p ? p.productName : '', p ? p.productCode : '', r.reason, r.actor_name, r.operation_id, r.department].join(' '));
       if (hay.indexOf(needle) < 0) return false;
     }
     return true;
@@ -1431,6 +1512,10 @@ function apiVppListMovements_(q) {
   var proposalCodes = {};
   if (rows.some(function (r) { return r.proposal_id; })) {
     readColumns_(SHEETS.VPP_PROPOSALS, ['proposal_id', 'proposal_code']).forEach(function (p) { proposalCodes[p.proposal_id] = p.proposal_code; });
+  }
+  var voucherCodes = {};
+  if (rows.some(function (r) { return r.voucher_id; })) {
+    readColumns_(SHEETS.VPP_VOUCHERS, ['voucher_id', 'voucher_code']).forEach(function (v) { voucherCodes[v.voucher_id] = v.voucher_code; });
   }
   var start = (page - 1) * pageSize;
   return {
@@ -1452,6 +1537,10 @@ function apiVppListMovements_(q) {
         handoverCode: handoverCodes[r.handover_id] || '',
         proposalId: r.proposal_id || '',
         proposalCode: proposalCodes[r.proposal_id] || '',
+        voucherId: r.voucher_id || '',
+        voucherCode: voucherCodes[r.voucher_id] || '',
+        department: r.department || '',
+        unitPrice: toNumberOrNull_(r.unit_price),
         operationId: r.operation_id || '',
         actorId: r.actor_id || '',
         actorName: r.actor_name || '',

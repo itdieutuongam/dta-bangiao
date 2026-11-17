@@ -6,6 +6,8 @@ export function startGasEmulator(options: {
   secret: string;
   seed?: boolean;
   vpp?: boolean;
+  /** Nạp danh mục mẫu đồng phục + tồn kho / size mẫu (chỉ chạy thử). */
+  uniform?: boolean;
   quiet?: boolean;
   redirect?: boolean;
   settings?: Record<string, string>;

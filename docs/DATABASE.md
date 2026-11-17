@@ -1,4 +1,4 @@
-# Cấu trúc dữ liệu (Google Sheets + Google Drive) — v2
+# Cấu trúc dữ liệu (Google Sheets + Google Drive) — v2.1 (cấu trúc v3)
 
 Hệ thống đọc/ghi theo **tên cột ở dòng 1**, không theo vị trí → có thể đổi thứ tự cột hoặc thêm cột riêng (ghi chú nội bộ,
 công thức) mà không ảnh hưởng. Không đổi tên / xóa các cột dưới đây. `setupDatabase()` / `upgradeOfficeSupplyModule()`
@@ -28,7 +28,9 @@ Quy ước chung:
 | `full_name` | ✔ | Họ tên đầy đủ có dấu |
 | `department` | | Phòng ban — quyết định **định mức văn phòng phẩm** áp dụng (xem `VPP_DINH_MUC`) |
 | `position` | | Chức vụ |
-| `email` | | Email (hiển thị khi chọn người nhận, dùng nút “Gửi qua email”) |
+| `email` | | Email công ty của nhân viên — **mã xác nhận khi ký gửi tới đây**; trống = người nhận ký không cần mã (người cầm link ký thay được). Điền đủ rồi đặt `CAU_HINH.CONFIRM_OTP = REQUIRED` |
+| `gender` | | *(v2.1)* `NAM` / `NỮ` — chọn sẵn mẫu đồng phục đúng giới tính |
+| `uniform_size` | | *(v2.1)* Size đồng phục thường dùng (S, M, L, XL, XXL, 3XL…) — chọn sẵn size, dự trù đặt may |
 | `phone` | | Số điện thoại — **không** trả về qua bất kỳ API nào |
 | `status` | | `ACTIVE` hoặc để trống = đang làm việc · `INACTIVE` (hoặc giá trị khác) = không chọn được, không đề xuất VPP được |
 | `created_at`, `updated_at` | | Tùy chọn, để tham khảo |
@@ -205,7 +207,66 @@ kể cả sau khi đã sửa tên / ĐVT sản phẩm). Không trùng (phạm vi
 `product_approval_status` (`NOT_REQUIRED` / `PENDING` / `APPROVED_MASTER` / `KEPT_TEMP` / `MAPPED` / `REJECTED`) ·
 `reference_url` · `received_quantity` · `item_order`.
 
-## 13. Script Properties (Apps Script)
+### 12a. `VPP_PHIEU_KHO` — phiếu nhập / xuất kho *(v2.1 — cấu trúc v3)*
+
+`voucher_id` · `voucher_code` (`NK-YYYYMMDD-NNNN` nhập / `XK-YYYYMMDD-NNNN` xuất) · `voucher_type` (`IN` / `OUT`) · `voucher_date` ·
+`reason_type` (nhập: `MUA_TRUC_TIEP` / `BO_SUNG` / `CHUYEN_KHO` / `TON_DAU_KY` / `KHAC`) · `department` · `receiver_employee_id` ·
+`receiver_name` · `supplier` · `invoice_no` · `note` · `line_count` · `total_quantity` · `total_amount` · `actor_id` · `actor_name` ·
+`client_request_id` · `created_at`. Dòng hàng = các dòng `VPP_BIEN_DONG_KHO` cùng `voucher_id` (cột mới v3: `voucher_id`, `unit_price`,
+`department`; loại mới `ISSUE` = xuất kho trực tiếp). Sheet do hệ thống ghi (khóa bằng *Khóa sheet hệ thống*).
+
+## 13–18. Đồng phục *(v2.1 — cấu trúc v3)*
+
+Nghiệp vụ: [DONG_PHUC.md](DONG_PHUC.md). Menu **Nâng cấp module Đồng phục (v3)** tạo các sheet / cột dưới đây; `SCHEMA_VERSION = 3`.
+Cột bổ sung ở sheet cũ: `NHAN_VIEN.gender` (`NAM` / `NỮ`, trống = chưa rõ) · `NHAN_VIEN.uniform_size` (S, M, L, XL, XXL, 3XL…) ·
+`CHI_TIET_BAN_GIAO.size` · `CHI_TIET_BAN_GIAO.issue_kind` (`CAP_PHAT` / `CHO_MUON`; hạn trả của đồ mượn ở cột `deadline`).
+Loại nội dung `DONG_PHUC` (`handover_type = UNIFORM`) chỉ dùng trong phiếu đồng phục — phiếu loại khác không chọn được.
+Cấu hình thêm trong `CAU_HINH`: `PDF_TITLE_DP`, `DP_TIEU_CHUAN_NAM` (mặc định `3`), khóa `DP_SCOPE:<PHÒNG_BAN>` (gán phòng ban → nhóm
+tiêu chuẩn; `NONE` = không áp dụng).
+
+### 13. `DP_MAU` — mẫu đồng phục
+
+`model_id` · `model_code` (`DP-001`…) · `model_name` · `kind` (`UNIFORM` / `PPE` / `OTHER`) · `gender` (`NAM` / `NU` / `UNISEX`) ·
+`sizes` (danh sách, cách nhau bởi dấu phẩy) · `unit` · `reference_price` · `counts_toward_quota` (`TRUE` / `FALSE`) ·
+`minimum_stock` (mỗi size, hàng mới) · `applies_to` · `active` · `note` · `created_at` · `updated_at`.
+
+### 14. `DP_BIEN_THE` — mặt hàng (mẫu × size × tình trạng)
+
+`product_id` (UUID cố định theo mẫu + size + tình trạng) · `sku_code` (`DP-001-L`, hàng đã qua sử dụng `DP-001-L-CU`) · `model_id`
+· `size` · `condition` (`NEW` / `USED`) · `active` · `created_at` · `updated_at`. Hệ thống tự tạo khi tạo / sửa mẫu — không thêm tay.
+
+### 15. `DP_TON_KHO` — tồn kho (1 dòng / mặt hàng)
+
+Cùng cấu trúc `VPP_TON_KHO`: `product_id` · `on_hand` · `reserved` · `minimum_stock` · `raw_initial_value` · `needs_review` ·
+`updated_at` · `updated_by`. Số tổng hợp của sổ biến động — không sửa tay (dùng *Kiểm kê*).
+
+### 16. `DP_BIEN_DONG_KHO` — sổ biến động (chỉ thêm)
+
+Như `VPP_BIEN_DONG_KHO` (không có `proposal_id`) + `employee_id` (người nhận / người trả) + `return_id`. Thêm loại `RETURN`
+(nhận lại khi nhân viên trả, `on_hand +=`) và `DISPOSE` (thanh lý, `on_hand −=`). `operation_id`: `HANDOVER_RESERVE:{id}`,
+`HANDOVER_CONFIRM:{id}`, `DP_STOCK_IN:{uuid}`, `DP_ADJUST:{uuid}`, `DP_DISPOSE:{uuid}`, `DP_RETURN:{uuid}`…
+
+### 17. `DP_DINH_MUC` — tiêu chuẩn cấp phát năm
+
+`norm_id` · `scope_id` · `scope_name` · `model_id` (trống = tổng mọi mẫu tính tiêu chuẩn) · `gender` (trống = cả nam và nữ) ·
+`yearly_quantity` · `note` · `effective_from` · `effective_to` · `active` · `created_at` · `updated_at`.
+
+### 18. `DP_THU_HOI` — trả / thu hồi
+
+`return_id` · `handover_id` · `item_id` · `employee_id` · `employee_name` · `department` · `product_id` · `model_id` · `size` ·
+`quantity` · `result` (`RESTOCK` / `DAMAGED` / `LOST`) · `restock_product_id` · `restock_condition` · `reason` (`TRA_MUON` /
+`NGHI_VIEC` / `DOI_SIZE` / `HU_HONG` / `KHAC`) · `note` · `actor_id` · `actor_name` · `client_request_id` · `created_at`.
+
+### Tiêu đề cột & cột định danh (v2.1)
+
+- Gõ đè **một** ô tiêu đề hệ thống → `onEdit` tự đặt lại tên cũ và báo. Dán đè nhiều ô → Web App dừng ghi (`NOT_CONFIGURED`) cho tới
+  khi sửa lại tiêu đề — không còn âm thầm bỏ qua cột.
+- Nâng cấp / thiết lập khôi phục tiêu đề định danh bị gõ đè (ví dụ `norm_id` → `m`) thay vì thêm cột trống; menu **Sửa cột định danh
+  bị đổi tên** chép mã sang cột định danh đang trống (không xóa cột nào).
+- Cột tự thêm **trùng tên** cột hệ thống: hệ thống đọc / ghi cột **đầu tiên**; *Cài đặt* / *Kiểm tra cấu hình* báo để đổi tên.
+- Dòng có mã định danh trống không bao giờ bị ghi theo danh sách mã (trước đây có thể bị đánh dấu hàng loạt).
+
+## 19. Script Properties (Apps Script)
 
 | Property | Ai đặt | Mô tả |
 |---|---|---|
@@ -213,8 +274,9 @@ kể cả sau khi đã sửa tên / ĐVT sản phẩm). Không trùng (phạm vi
 | `SPREADSHEET_ID` | `setupDatabase()` / quản trị viên | ID Google Sheet |
 | `DRIVE_FOLDER_ID` | `setupDatabase()` / quản trị viên | ID thư mục gốc `DTA_HANDOVER` |
 | `USE_ADVANCED_DRIVE` | Quản trị viên (tùy chọn) | `true` để dùng Drive API v3 (Shared Drive) |
-| `SCHEMA_VERSION` | `upgradeOfficeSupplyModule()` | Phiên bản cấu trúc dữ liệu (v2 = `2`). Thấp hơn yêu cầu → mọi thao tác (trừ kiểm tra sức khỏe) báo `NOT_CONFIGURED`, không ghi nửa vời. Đủ phiên bản nhưng sheet thiếu cột code cần → cũng báo `NOT_CONFIGURED` (kèm tên cột) |
-| `HANDOVER_SEQ`, `VPP_PROPOSAL_SEQ`, `VPP_PRODUCT_SEQ` | Hệ thống | Bộ đếm mã phiếu / đề xuất / sản phẩm (luôn lấy max với dữ liệu thật — xóa property không gây trùng mã) |
+| `SCHEMA_VERSION` | `upgradeUniformModule()` (v2.1) / `upgradeOfficeSupplyModule()` | Phiên bản cấu trúc dữ liệu (v2.1 = `3`, v2 = `2`). Thấp hơn yêu cầu → mọi thao tác (trừ kiểm tra sức khỏe) báo `NOT_CONFIGURED`, không ghi nửa vời. Đủ phiên bản nhưng sheet thiếu cột code cần → cũng báo `NOT_CONFIGURED` (kèm tên cột) |
+| `HANDOVER_SEQ`, `VPP_PROPOSAL_SEQ`, `VPP_PRODUCT_SEQ`, `DP_MODEL_SEQ` | Hệ thống | Bộ đếm mã phiếu / đề xuất / sản phẩm / mẫu đồng phục (luôn lấy max với dữ liệu thật — xóa property không gây trùng mã) |
+| `DP_STOCK_DIRTY` | Hệ thống | Như `VPP_STOCK_DIRTY` cho kho đồng phục *(v2.1)* |
 | `FOLDER_<LOẠI>_<YYYY>_<MM>` | Hệ thống | ID thư mục tháng đã tạo |
 | `NOTIFY_STATUS` | Hệ thống | JSON kết quả gửi email gần nhất (`lastOkAt`, `lastOkEvent`, `lastError { at, event, message }`) — trang Tổng quan / Cài đặt hiện lỗi gửi mail *(v2)* |
 | `VPP_STOCK_DIRTY` | Hệ thống | Danh sách sản phẩm đang ghi kho dở. Chỉ còn lại sau lỗi giữa chừng → lần ghi kho kế tiếp tự tính lại tồn các sản phẩm đó từ sổ biến động rồi xóa *(v2)* |
@@ -226,7 +288,7 @@ kể cả sau khi đã sửa tên / ĐVT sản phẩm). Không trùng (phạm vi
 `otp-send:<handover_id>` (bộ đếm gửi mã — 6 giờ), `schema-ok:<dấu vân tay>` (kết quả kiểm tra đủ cột — 10 phút), cache nhân viên /
 loại nội dung / cấu hình / danh mục, bộ đếm giới hạn tần suất.
 
-## 14. Google Drive
+## 20. Google Drive
 
 ```text
 DTA_HANDOVER/
@@ -241,7 +303,7 @@ DTA_HANDOVER/
   PDF của chính phiếu đã xác nhận). Hệ thống chỉ trả file **nằm trong thư mục `DTA_HANDOVER`** và đúng định dạng (PNG / PDF) —
   ID file bị sửa trỏ ra ngoài sẽ bị từ chối.
 
-## 15. Chỉnh sửa dữ liệu trực tiếp — nên & không nên
+## 21. Chỉnh sửa dữ liệu trực tiếp — nên & không nên
 
 | Được phép sửa trực tiếp | Không sửa tay (dùng trang quản trị) |
 |---|---|

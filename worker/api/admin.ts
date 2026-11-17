@@ -76,7 +76,9 @@ export async function adminLoginHandler(c: RequestContext): Promise<Response> {
   const matched = await secretEquals(password, account?.password ?? toHex(randomBytes(24)));
   if (!account || !matched) {
     await sleep(400);
-    logEvent('warn', c, 'admin.login_failed', { username: config.mode === 'users' ? username : 'shared' });
+    // Chỉ ghi tên đăng nhập CÓ THẬT; tên lạ ghi "unknown" — người dùng hay gõ nhầm mật khẩu vào ô tên đăng nhập (log Cloudflare
+    // giữ nguyên văn, ai xem được log cũng đọc được).
+    logEvent('warn', c, 'admin.login_failed', { username: config.mode === 'users' ? (account ? account.username : 'unknown') : 'shared' });
     throw new ApiError(401, 'INVALID_CREDENTIALS', config.mode === 'users' ? 'Tên đăng nhập hoặc mật khẩu không đúng.' : 'Mật khẩu không đúng.');
   }
   const user = { username: account.username, name: account.name };

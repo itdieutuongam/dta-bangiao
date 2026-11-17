@@ -61,7 +61,16 @@ export function adminBadges(): Promise<AdminBadges> {
   return apiRequest<AdminBadges>('/api/admin/badges');
 }
 
-export type ExportDataset = 'handovers' | 'stock' | 'movements' | 'proposals';
+export type ExportDataset =
+  | 'handovers'
+  | 'stock'
+  | 'movements'
+  | 'proposals'
+  | 'vpp-vouchers'
+  | 'uniform-stock'
+  | 'uniform-movements'
+  | 'uniform-employees'
+  | 'uniform-holdings';
 
 export interface ExportResult {
   rows: number;

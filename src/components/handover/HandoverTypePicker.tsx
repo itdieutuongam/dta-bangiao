@@ -1,8 +1,9 @@
-import { Boxes, BriefcaseBusiness, FolderOpen, KeyRound, Laptop, Shapes, type LucideIcon } from 'lucide-react';
+import { Boxes, BriefcaseBusiness, FolderOpen, KeyRound, Laptop, Shapes, Shirt, type LucideIcon } from 'lucide-react';
 import { HANDOVER_TYPE_HINTS, HANDOVER_TYPE_LABELS, HANDOVER_TYPES, type HandoverType } from '../../../shared/constants';
 
 const ICONS: Record<HandoverType, LucideIcon> = {
   ASSET: Laptop,
+  UNIFORM: Shirt,
   OFFICE_SUPPLY: Boxes,
   ACCOUNT: KeyRound,
   DOCUMENT: FolderOpen,

@@ -35,6 +35,10 @@ playwright-report/
 
 # Tài liệu scan / PDF đặt nhầm ở thư mục gốc (có thể chứa dữ liệu nhạy cảm) — không bao giờ commit
 /*.pdf
+# File Excel / CSV dữ liệu thật đặt ở thư mục gốc (vd Mau_theo_doi_VPP.xlsx — có tên nhân viên) — nhập qua trang quản trị, không commit
+/*.xlsx
+/*.xls
+/*.csv
 
 # Editor / OS
 .DS_Store

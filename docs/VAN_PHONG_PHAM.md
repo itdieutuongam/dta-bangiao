@@ -47,7 +47,10 @@ Trạng thái tồn: `available ≤ 0` → 🔴 **HẾT HÀNG**; `0 < available 
 | `RESERVE` | `reserved +=` | Tạo / sửa tăng số lượng phiếu VPP |
 | `RELEASE` | `reserved −=` | Hủy phiếu, sửa giảm số lượng |
 | `OUT` | `on_hand −=`, `reserved −=` | Người nhận ký xác nhận phiếu VPP |
-| `ADJUSTMENT` | `on_hand = số kiểm kê` | Kiểm kê (bắt buộc lý do), ghép sản phẩm |
+| `ADJUSTMENT` | `on_hand = số kiểm kê` | Kiểm kê (bắt buộc lý do), ghép sản phẩm, cập nhật tồn từ Excel |
+| `ISSUE` *(v2.1)* | `on_hand −=` (không thấp hơn `reserved`) | Phiếu xuất kho trực tiếp cho phòng ban / người nhận (§5b) |
+
+Dòng thuộc phiếu nhập / xuất (v2.1) có thêm `voucher_id` (→ `VPP_PHIEU_KHO`), `unit_price` (giá nhập), `department` (phòng ban nhận).
 
 Mỗi dòng ghi `on_hand / reserved` trước & sau, phiếu / đề xuất liên quan, `operation_id`, **người thực hiện** và lý do.
 Không bao giờ xóa hay sửa dòng biến động; sai sót xử lý bằng kiểm kê (ADJUSTMENT) mới.
@@ -149,6 +152,53 @@ Chuyển trạng thái sai → `INVALID_STATUS_TRANSITION`.
   → “đã ghi ở lần gửi trước”, không cộng lần hai; số khác → báo số đã ghi (`REQUEST_REUSED`), không ghi.
 - Ô số nhận cách gõ kiểu Việt Nam: `1.000` = một nghìn, đơn giá `15.000` hoặc `12,5`; cách viết hai nghĩa (`1,500`) → báo lỗi, không đoán.
 - Không sửa tay số tồn trên Google Sheet (sheet được khóa bằng *Khóa sheet hệ thống*).
+
+## 5a. Phiếu nhập kho nhiều mặt hàng (`/admin/vpp/nhap-kho`, v2.1)
+
+Thay cho sheet “Nhap VPP” của file Excel theo dõi cũ: **tích chọn** các mặt hàng mua về → số lượng + đơn giá từng mặt hàng → lý do,
+ngày nhập, nhà cung cấp, số hóa đơn / chứng từ, ghi chú → **NHẬP KHO**. Hệ thống ghi **một phiếu nhập** `NK-YYYYMMDD-NNNN`
+(`VPP_PHIEU_KHO`) và một dòng `IN` (hoặc `INITIAL` nếu lý do “Tồn đầu kỳ”) cho từng mặt hàng. Tùy chọn “Cập nhật đơn giá tham khảo
+theo giá nhập”. Mặt hàng đang “chưa rõ tồn” chỉ nhập được với lý do “Tồn đầu kỳ” (báo đúng dòng, không ghi nửa vời).
+
+## 5b. Phiếu xuất kho (`/admin/vpp/xuat-kho`, v2.1)
+
+Thay cho sheet “Xuat VPP”: danh sách mặt hàng **còn hàng hiện trước** (khả dụng nhiều → ít; hết hàng / chưa rõ tồn xuống cuối và không
+tích được), **tích chọn** nhiều mặt hàng → số lượng (không quá khả dụng) → phòng ban nhận (chọn hoặc gõ) / người nhận (chọn nhân viên —
+tự điền phòng ban — hoặc gõ tên) → **XUẤT KHO**: ghi phiếu `XK-YYYYMMDD-NNNN` + dòng `ISSUE` từng mặt hàng (trừ tồn ngay, **không**
+cần chữ ký, không đụng phần đang giữ chỗ cho phiếu bàn giao chờ ký). Không đủ khả dụng → báo **mọi** dòng thiếu một lần, không xuất dòng nào.
+
+Nút **“Tạo phiếu bàn giao (người nhận ký)”** chuyển các mặt hàng + số lượng đang chọn sang form *Phiếu văn phòng phẩm* (giữ chỗ, trừ tồn
+khi người nhận ký trên điện thoại) — dùng khi cần chữ ký nhận.
+
+## 5c. Phiếu nhập / xuất (`/admin/vpp/phieu-kho`, v2.1)
+
+Danh sách phiếu (lọc loại, khoảng ngày, phòng ban, tìm số phiếu / nhà cung cấp / người nhận), bấm để xem dòng hàng (SL, đơn giá, thành
+tiền, tồn sau). **Tổng xuất theo phòng ban** × mặt hàng cho khoảng lọc (như bảng tổng của sheet “Xuat VPP”). **Xuất CSV** từng dòng hàng
+(`phieu-nhap-xuat-vpp-*.csv`). Không sửa / xóa phiếu — sai thì lập phiếu bù hoặc kiểm kê.
+
+## 5d. Cập nhật danh mục + tồn kho từ Excel (`/admin/vpp/nhap-excel`, v2.1)
+
+Chọn file `.xlsx` theo mẫu theo dõi VPP (sheet **“Danh muc”**: MÃ, TÊN HÀNG HÓA, ĐV TÍNH, ĐƠN GIÁ; sheet **“Ton kho”**: Mã VPP, Tên vật
+tư, ĐVT, Tồn hiện tại, Tồn tối thiểu — tên sheet / cột không phân biệt dấu, hoa thường; chọn sheet khác được). File đọc **ngay trên trình
+duyệt** (`src/utils/xlsx.ts`, không gửi file lên máy chủ), chuẩn hóa (`shared/vppImport.ts`):
+
+- bỏ dòng lỗi công thức (`#REF!`, `#N/A`…), dòng thiếu tên, dòng trùng hoàn toàn / trùng tên;
+- mã: bỏ khoảng trắng, chữ hoa; mã không hợp lệ (“Cái”, “G”) hoặc **một mã dùng cho hai mặt hàng** (vd `SP000058` cho A3 70 và 80 gsm)
+  → mặt hàng sau được cấp mã `VPP-xxxx`;
+- tồn của mã dùng chung lấy theo dòng tồn **cùng tên** (công thức tra cứu của file gán cùng số cho cả hai);
+- dòng **“Áo …”** là đồng phục → tách riêng, gợi ý nhập ở *Đồng phục → Tồn kho & mẫu* (tích “Vẫn nhập…” nếu muốn để trong VPP).
+
+**Xem trước** (không ghi): khớp sản phẩm có sẵn theo **mã** → theo **tên** (giữ dấu); dòng mới có tên gần giống sản phẩm có sẵn được
+**gợi ý ghép** (chọn “Cập nhật …” thay vì “Thêm mới” — dùng để giữ định mức / lịch sử của sản phẩm cũ). Bảng: thêm mới, cập nhật (mã /
+tên / ĐVT / đơn giá / tồn tối thiểu — trước → sau), đổi tồn (hiện tại → theo file), cảnh báo, sản phẩm không có trong file.
+
+Tùy chọn: **đặt tồn theo “Tồn hiện tại”** (mặc định bật — ghi `INITIAL` cho sản phẩm mới, `ADJUSTMENT` kiểu kiểm kê cho sản phẩm có sẵn,
+lý do ghi tên file; không thấp hơn số đang giữ chỗ) · **ngừng dùng sản phẩm không có trong file** (mặc định tắt; chỉ sản phẩm không còn
+tồn / giữ chỗ / định mức). ĐVT trong file khác ĐVT hệ thống khi sản phẩm đang có tồn / định mức → **giữ ĐVT cũ** (đổi ĐVT phải quy đổi số
+lượng). **Áp dụng** ghi theo lô trong một khóa; gửi lại (mất mạng, bấm lại) không tạo trùng, không điều chỉnh tồn hai lần; chạy lại với
+cùng file sau này chỉ cập nhật phần khác biệt. Lịch sử: `LICH_SU` (`VPP_IMPORT`) + dòng kiểm kê trong *Lịch sử kho*.
+
+Sau khi cập nhật: vào *Dữ liệu cần kiểm tra* **ghép** các sản phẩm cũ còn định mức / tồn vào sản phẩm mới tương ứng (chuyển định mức).
 
 ## 6. Dữ liệu cần kiểm tra (`/admin/vpp/data-review`)
 

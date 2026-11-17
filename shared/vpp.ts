@@ -21,7 +21,7 @@ export const STOCK_STATUS_LABELS: Record<StockStatus, string> = {
   UNKNOWN: 'Chưa rõ tồn',
 };
 
-export const MOVEMENT_TYPES = ['INITIAL', 'IN', 'RESERVE', 'RELEASE', 'OUT', 'ADJUSTMENT'] as const;
+export const MOVEMENT_TYPES = ['INITIAL', 'IN', 'RESERVE', 'RELEASE', 'OUT', 'ADJUSTMENT', 'ISSUE'] as const;
 export type MovementType = (typeof MOVEMENT_TYPES)[number];
 
 export const MOVEMENT_TYPE_LABELS: Record<MovementType, string> = {
@@ -31,15 +31,17 @@ export const MOVEMENT_TYPE_LABELS: Record<MovementType, string> = {
   RELEASE: 'Trả giữ chỗ',
   OUT: 'Xuất kho',
   ADJUSTMENT: 'Điều chỉnh / kiểm kê',
+  // v2.1: xuất trực tiếp theo phiếu xuất (không qua phiếu bàn giao ký nhận).
+  ISSUE: 'Xuất kho (phiếu xuất)',
 };
 
 /**
  * Số lượng theo chiều tác động (như trang Lịch sử kho hiển thị): xuất kho / trả giữ chỗ là số âm, điều chỉnh giữ dấu đã ghi,
- * còn lại dương. Sổ lưu số dương cho OUT / RELEASE.
+ * còn lại dương. Sổ lưu số dương cho OUT / RELEASE / ISSUE.
  */
 export function signedMovementQuantity(movementType: MovementType, quantity: number): number {
   if (movementType === 'ADJUSTMENT') return quantity;
-  return movementType === 'OUT' || movementType === 'RELEASE' ? -Math.abs(quantity) : Math.abs(quantity);
+  return movementType === 'OUT' || movementType === 'RELEASE' || movementType === 'ISSUE' ? -Math.abs(quantity) : Math.abs(quantity);
 }
 
 export const PROPOSAL_STATUSES = [
@@ -280,11 +282,131 @@ export interface StockMovement {
   handoverCode: string;
   proposalId: string;
   proposalCode: string;
+  /** v2.1: dòng của phiếu nhập / xuất kho (VPP_PHIEU_KHO). */
+  voucherId?: string;
+  voucherCode?: string;
+  department?: string;
+  unitPrice?: number | null;
   operationId: string;
   actorId: string;
   actorName: string;
   reason: string;
   createdAt: string;
+}
+
+// ---------------------------------------------------------------- Phiếu nhập / xuất kho (v2.1)
+
+export const VOUCHER_TYPES = ['IN', 'OUT'] as const;
+export type VoucherType = (typeof VOUCHER_TYPES)[number];
+export const VOUCHER_TYPE_LABELS: Record<VoucherType, string> = { IN: 'Phiếu nhập', OUT: 'Phiếu xuất' };
+
+export interface StockVoucherLine {
+  productId: string;
+  productCode: string;
+  productName: string;
+  unit: string;
+  movementType: MovementType;
+  quantity: number;
+  unitPrice: number | null;
+  amount: number | null;
+  onHandBefore: number | null;
+  onHandAfter: number | null;
+  reason: string;
+}
+
+export interface StockVoucher {
+  voucherId: string;
+  voucherCode: string;
+  voucherType: VoucherType;
+  voucherDate: string;
+  reasonType: string;
+  department: string;
+  receiverEmployeeId: string;
+  receiverName: string;
+  supplier: string;
+  invoiceNo: string;
+  note: string;
+  lineCount: number;
+  totalQuantity: number;
+  totalAmount: number | null;
+  actorId: string;
+  actorName: string;
+  createdAt: string;
+  lines?: StockVoucherLine[];
+}
+
+/** Tổng xuất theo phòng ban × mặt hàng (như sheet "Xuat VPP" của file Excel theo dõi cũ). */
+export interface IssueSummary {
+  departments: string[];
+  totals: Record<string, number>;
+  total: number;
+  rows: Array<{ productId: string; productCode: string; productName: string; unit: string; byDepartment: Record<string, number>; total: number }>;
+}
+
+export interface VoucherListResponse {
+  items: StockVoucher[];
+  total: number;
+  page: number;
+  pageSize: number;
+  issueSummary: IssueSummary;
+  departments: string[];
+}
+
+export interface VoucherWriteResult {
+  voucher: StockVoucher;
+  duplicate: boolean;
+  warnings?: StockWarning[];
+}
+
+// ---------------------------------------------------------------- Cập nhật danh mục + tồn từ Excel (v2.1)
+
+/** Một dòng gửi máy chủ (đã chuẩn hóa ở shared/vppImport.ts). */
+export interface VppImportRow {
+  line: number;
+  code: string;
+  name: string;
+  unit: string;
+  price: number | null;
+  stock: number | null;
+  minimumStock: number | null;
+  /** Quản trị viên chọn cập nhật sản phẩm có sẵn này (thay cho thêm mới). */
+  matchProductId?: string;
+}
+
+export interface VppImportOptions {
+  /** Đặt tồn theo cột "Tồn hiện tại" (kiểm kê). */
+  setStock: boolean;
+  /** Ngừng dùng sản phẩm không có trong file (chỉ sản phẩm không còn tồn / giữ chỗ / định mức). */
+  archiveMissing: boolean;
+}
+
+export interface VppImportPlan {
+  summary: { rows: number; create: number; update: number; unchanged: number; stockChanges: number; archive: number; kept: number; skipped: number; warnings: number };
+  creates: Array<{ line: number; code: string; codeAuto: boolean; name: string; unit: string; price: number | null; stock: number | null }>;
+  updates: Array<{
+    line: number;
+    productId: string;
+    productCode: string;
+    productName: string;
+    matchedBy: 'CODE' | 'NAME' | 'MANUAL' | 'RESUMED';
+    changes: Array<{ field: string; label: string; before: string | number | null; after: string | number | null }>;
+  }>;
+  stockChanges: Array<{ line: number; productId: string; productCode: string; productName: string; unit: string; before: number | null; after: number; isNew: boolean }>;
+  archives: Array<{ productId: string; productCode: string; productName: string; unit: string }>;
+  kept: Array<{ productId: string; productCode: string; productName: string; unit: string; reason: string }>;
+  skipped: Array<{ line: number; name: string; reason: string }>;
+  warnings: Array<{ line: number; message: string }>;
+  suggestions: Array<{
+    line: number;
+    name: string;
+    candidates: Array<{ productId: string; productCode: string; productName: string; unit: string; score: number; onHand: number | null; normCount: number }>;
+  }>;
+  unchanged: number;
+}
+
+export interface VppImportResult {
+  result: (VppImportPlan['summary'] & { fileName: string; at: string }) | null;
+  duplicate: boolean;
 }
 
 export interface MovementListResponse {

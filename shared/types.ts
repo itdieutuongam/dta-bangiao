@@ -1,4 +1,5 @@
 import type { HandoverStatus, HandoverType, ItemFieldKey } from './constants';
+import type { EmployeeGender, IssueKind } from './uniform';
 import type { StockWarning, VppAlertsSummary } from './vpp';
 
 /** Định dạng response thống nhất của mọi API. */
@@ -20,10 +21,14 @@ export interface Employee {
   email: string;
 }
 
-/** Nhân viên trên trang quản trị "Nhân viên" (kèm trạng thái + phạm vi định mức VPP). */
+/** Nhân viên trên trang quản trị "Nhân viên" (kèm trạng thái + phạm vi định mức VPP + hồ sơ đồng phục). */
 export interface AdminEmployee extends Employee {
   status?: 'ACTIVE' | 'INACTIVE';
   vppScope?: { scopeId: string; scopeName: string; source: 'MAPPING' | 'AUTO' } | null;
+  /** NHAN_VIEN.gender (đã chuẩn hóa) — '' = chưa khai báo. */
+  gender?: EmployeeGender | '';
+  /** NHAN_VIEN.uniform_size — size đồng phục thường dùng. */
+  uniformSize?: string;
 }
 
 export interface CategoryField {
@@ -63,7 +68,11 @@ export interface HandoverItem extends HandoverItemInput {
   itemOrder: number;
   productId: string;
   affectsInventory: boolean;
-  /** Chỉ có ở trang quản trị. */
+  /** Dòng đồng phục: size (trống với loại khác). */
+  size: string;
+  /** Dòng đồng phục: Cấp phát / Cho mượn (hạn trả ở `deadline`). Trống với loại khác. */
+  issueKind: IssueKind | '';
+  /** Chỉ có ở trang quản trị: lý do vượt định mức (VPP) / vượt tiêu chuẩn năm (đồng phục). */
   overNormReason?: string;
 }
 
@@ -73,6 +82,21 @@ export interface SupplyLineInput {
   quantity: number;
   note: string;
   overNormReason: string;
+}
+
+/**
+ * Một dòng đồng phục khi tạo / sửa phiếu UNIFORM: mặt hàng (mẫu × size × tình trạng) chọn từ kho + SL + hình thức.
+ * Tên mẫu, size, tình trạng, ĐVT do hệ thống lấy từ danh mục (không tin trình duyệt).
+ */
+export interface UniformLineInput {
+  productId: string;
+  quantity: number;
+  issueKind: IssueKind;
+  /** Hạn trả (YYYY-MM-DD) — bắt buộc khi Cho mượn. */
+  dueDate: string;
+  note: string;
+  /** Bắt buộc khi vượt tiêu chuẩn cấp phát năm (chỉ quản trị viên thấy). */
+  overQuotaReason: string;
 }
 
 export interface PersonRef {
@@ -95,6 +119,8 @@ export interface HandoverInput {
   note: string;
   items: HandoverItemInput[];
   supplies: SupplyLineInput[];
+  /** Chỉ phiếu UNIFORM. */
+  uniforms?: UniformLineInput[];
   /** Mã chống gửi trùng do trình duyệt sinh (UUID). */
   clientRequestId?: string;
 }
@@ -188,6 +214,8 @@ export interface AdminHandoverSummary {
   receiverDepartment: string;
   itemCount: number;
   categories: string[];
+  /** Ý kiến người nhận (ghi chú khi ký / lý do yêu cầu sửa), tối đa 300 ký tự. */
+  receiverComment?: string;
 }
 
 export interface HandoverStats {
@@ -215,9 +243,10 @@ export interface IntegrityInfo {
   /**
    * Từng phần so với lúc ký (chỉ có khi đã ký): content = nội dung bàn giao; record = toàn biên bản (ý kiến người nhận, thời
    * điểm lập / ký, chữ ký — null: ký trước khi có mã này); seal = niêm phong bằng RECORD_SEAL_SECRET (NONE: ký khi chưa cấu
-   * hình; UNVERIFIED: có niêm phong nhưng Worker hiện không có khóa để kiểm tra).
+   * hình; UNVERIFIED: có niêm phong nhưng Worker hiện không có khóa để kiểm tra; MISSING: Worker có khóa nhưng ô niêm phong của
+   * biên bản trống — đã bị xóa trên Sheet, trừ biên bản trong SEAL_LEGACY_IDS).
    */
-  checks?: { content: boolean; record: boolean | null; seal: 'OK' | 'MISMATCH' | 'UNVERIFIED' | 'NONE' } | null;
+  checks?: { content: boolean; record: boolean | null; seal: 'OK' | 'MISMATCH' | 'MISSING' | 'UNVERIFIED' | 'NONE' } | null;
 }
 
 export interface AdminHandoverDetail extends PublicHandover {
@@ -251,9 +280,21 @@ export interface AdminUpdateResponse extends AdminDetailResponse {
 export interface AdminOverview {
   stats: HandoverStats;
   revisionRequested: Array<{ id: string; code: string; receiverName: string; receiverComment: string; revisionRequestedAt: string }>;
+  /** Biên bản đã ký KÈM ghi chú của người nhận (30 ngày) — ghi chú có thể trái nội dung đã ký. */
+  signedWithComment: Array<{ id: string; code: string; receiverName: string; receiverComment: string; confirmedAt: string }>;
   recent: AdminHandoverSummary[];
   vpp: VppAlertsSummary;
+  /** Cảnh báo đồng phục (null: chưa nâng cấp module / lỗi đọc). */
+  uniform: UniformAlertsSummary | null;
   notify: NotifyStatus;
+}
+
+export interface UniformAlertsSummary {
+  outOfStockSkus: number;
+  lowStockSkus: number;
+  loansOverdue: number;
+  pendingHandovers: number;
+  employeesMissingSize: number;
 }
 
 /** Kết quả gửi gần nhất của một loại email. */
@@ -275,12 +316,16 @@ export interface NotifyStatus {
   notify: NotifyChannelStatus;
   /** Email mã xác nhận gửi người nhận khi ký. */
   otp: NotifyChannelStatus;
+  /** Nhân viên đang làm / có email hợp lệ — mã xác nhận chỉ bảo vệ người có email (máy chủ bản cũ: không có). */
+  emailCoverage?: { active: number; withEmail: number } | null;
 }
 
 /** Số việc cần xử lý hiện trên menu quản trị. */
 export interface AdminBadges {
   revisionRequested: number;
   submittedProposals: number;
+  /** Đồng phục cho mượn đã quá hạn trả. */
+  overdueUniformLoans: number;
 }
 
 export interface AdminUser {

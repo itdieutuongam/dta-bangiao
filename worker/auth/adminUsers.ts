@@ -26,6 +26,8 @@ const USERNAME_PATTERN = /^[a-z0-9._-]{2,40}$/;
 export const MIN_ADMIN_PASSWORD_LENGTH = 12;
 /** Độ dài khuyến nghị tối thiểu của STAFF_ACCESS_CODE (chỉ cảnh báo trên trang Cài đặt, không chặn). */
 export const MIN_STAFF_CODE_LENGTH = 10;
+/** Độ dài khuyến nghị tối thiểu của SESSION_SECRET (chỉ cảnh báo — đổi secret làm mọi phiên đăng nhập hết hiệu lực). */
+export const SESSION_SECRET_MIN_LENGTH = 32;
 
 export function readAdminConfig(env: Env): AdminConfig {
   const raw = env.ADMIN_USERS?.trim();
@@ -86,6 +88,10 @@ export function adminConfigWarnings(env: Env, config: AdminConfig): string[] {
   } else if (staffCode.length < MIN_STAFF_CODE_LENGTH) {
     // Mã chỉ bị giới hạn số lần thử theo IP (10 lần / phút) — mã ngắn dò được bằng nhiều IP.
     warnings.push(`Mã truy cập nội bộ (STAFF_ACCESS_CODE) ngắn hơn ${MIN_STAFF_CODE_LENGTH} ký tự — nên dùng mã dài hơn, có cả chữ và số.`);
+  }
+  if ((env.SESSION_SECRET?.trim().length ?? 0) < SESSION_SECRET_MIN_LENGTH) {
+    // Cookie phiên ký bằng HMAC(SESSION_SECRET): secret ngắn / dễ đoán → dò được offline từ một cookie hợp lệ rồi tự tạo phiên quản trị.
+    warnings.push(`SESSION_SECRET ngắn hơn ${SESSION_SECRET_MIN_LENGTH} ký tự — hãy đặt chuỗi ngẫu nhiên dài (openssl rand -hex 32).`);
   }
   if ((env.RECORD_SEAL_SECRET?.trim().length ?? 0) < RECORD_SEAL_SECRET_MIN_LENGTH) {
     warnings.push(

@@ -1,7 +1,7 @@
 import { RotateCcw, Search } from 'lucide-react';
 import { useEffect, useState, type FormEvent } from 'react';
 import { Link, useSearchParams } from 'react-router';
-import { MOVEMENT_TYPE_LABELS, MOVEMENT_TYPES, type StockMovement } from '../../../../shared/vpp';
+import { MOVEMENT_TYPE_LABELS, MOVEMENT_TYPES, signedMovementQuantity, type StockMovement } from '../../../../shared/vpp';
 import { ExportCsvButton } from '../../../components/ExportCsvButton';
 import { Button } from '../../../components/ui/Button';
 import { PageHeader } from '../../../components/ui/PageHeader';
@@ -19,10 +19,8 @@ const PAGE_SIZE = 50;
 
 function signed(m: StockMovement): string {
   // RESERVE / RELEASE không đổi tồn; số lượng hiển thị theo chiều tác động lên tồn / giữ chỗ.
-  if (m.movementType === 'OUT') return `−${Math.abs(m.quantity)}`;
-  if (m.movementType === 'ADJUSTMENT') return m.quantity > 0 ? `+${m.quantity}` : m.quantity < 0 ? `−${Math.abs(m.quantity)}` : '0';
-  if (m.movementType === 'RELEASE') return `−${Math.abs(m.quantity)}`;
-  return `+${Math.abs(m.quantity)}`;
+  const v = signedMovementQuantity(m.movementType, m.quantity);
+  return v > 0 ? `+${v}` : v < 0 ? `−${Math.abs(v)}` : '0';
 }
 
 function arrow(before: number | null, after: number | null): string {
@@ -236,9 +234,15 @@ export default function VppMovementsPage() {
 }
 
 function RelatedLinks({ movement }: { movement: StockMovement }) {
-  if (!movement.handoverId && !movement.proposalId) return null;
+  if (!movement.handoverId && !movement.proposalId && !movement.voucherId) return null;
   return (
     <span className="flex flex-wrap gap-2 text-xs">
+      {movement.voucherId && (
+        <Link to={`/admin/vpp/phieu-kho?id=${movement.voucherId}`} className="font-mono font-semibold text-brand-700 hover:underline">
+          {movement.voucherCode || 'Phiếu kho'}
+          {movement.department ? <span className="font-sans font-normal text-stone-500"> · {movement.department}</span> : null}
+        </Link>
+      )}
       {movement.handoverId && (
         <Link to={`/admin/ban-giao/${movement.handoverId}`} className="font-mono font-semibold text-brand-700 hover:underline">
           {movement.handoverCode || 'Phiếu'}

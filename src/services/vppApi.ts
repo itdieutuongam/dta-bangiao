@@ -8,8 +8,15 @@ import type {
   ProposalSubmitResult,
   PublicCatalogProduct,
   StockInReason,
+  StockVoucher,
+  VoucherListResponse,
+  VoucherWriteResult,
   VppDashboard,
   VppHandoverContext,
+  VppImportOptions,
+  VppImportPlan,
+  VppImportResult,
+  VppImportRow,
   VppNorm,
   VppNormsResponse,
   VppProduct,
@@ -104,6 +111,58 @@ export function vppStockAdjust(input: { productId: string; countedQuantity: numb
 
 export function vppMovements(filters: { page?: number; pageSize?: number; productId?: string; type?: string; from?: string; to?: string; q?: string }) {
   return apiRequest<MovementListResponse>(`/api/admin/vpp/movements${toQuery({ ...filters })}`);
+}
+
+// ---------------------------------------------------------------- Phiếu nhập / xuất kho (v2.1)
+
+export interface ReceiptInput {
+  reasonType: StockInReason;
+  date: string;
+  supplier: string;
+  invoiceNo: string;
+  note: string;
+  updatePrice: boolean;
+  lines: Array<{ productId: string; quantity: number; unitPrice: number | null; note: string }>;
+  clientRequestId: string;
+}
+
+export function vppStockReceipt(input: ReceiptInput): Promise<VoucherWriteResult> {
+  return apiRequest<VoucherWriteResult>('/api/admin/vpp/stock/receipt', { method: 'POST', body: input });
+}
+
+export interface IssueInput {
+  date: string;
+  department: string;
+  receiverEmployeeId: string;
+  receiverName: string;
+  note: string;
+  lines: Array<{ productId: string; quantity: number; note: string }>;
+  clientRequestId: string;
+}
+
+export function vppStockIssue(input: IssueInput): Promise<VoucherWriteResult> {
+  return apiRequest<VoucherWriteResult>('/api/admin/vpp/stock/issue', { method: 'POST', body: input });
+}
+
+export function vppVouchers(
+  filters: { page?: number; pageSize?: number; type?: string; from?: string; to?: string; department?: string; q?: string },
+  signal?: AbortSignal,
+) {
+  return apiRequest<VoucherListResponse>(`/api/admin/vpp/vouchers${toQuery({ ...filters })}`, { signal });
+}
+
+export async function vppVoucher(id: string, signal?: AbortSignal): Promise<StockVoucher> {
+  return (await apiRequest<{ voucher: StockVoucher }>(`/api/admin/vpp/vouchers/${encodeURIComponent(id)}`, { signal })).voucher;
+}
+
+// ---------------------------------------------------------------- Cập nhật danh mục + tồn kho từ Excel (v2.1)
+
+export async function vppImportPreview(body: { rows: VppImportRow[]; options: VppImportOptions; fileName: string }): Promise<VppImportPlan> {
+  return (await apiRequest<{ plan: VppImportPlan }>('/api/admin/vpp/import/preview', { method: 'POST', body })).plan;
+}
+
+export function vppImportApply(body: { rows: VppImportRow[]; options: VppImportOptions; fileName: string; clientRequestId: string }): Promise<VppImportResult> {
+  return apiRequest<VppImportResult>('/api/admin/vpp/import/apply', { method: 'POST', body });
 }
 
 export function vppHandoverContext(receiverEmployeeId: string, handoverId = ''): Promise<VppHandoverContext> {

@@ -45,7 +45,11 @@ function validateItem_(raw, index, errors) {
     if (s.length > f.max) errors[prefix + f.key] = 'Tối đa ' + f.max + ' ký tự';
     else if (f.kind === 'date' && s && !isValidDateOnly_(s)) errors[prefix + f.key] = 'Ngày không hợp lệ';
     else if (f.kind === 'url' && s && !isHttpUrl_(s)) errors[prefix + f.key] = 'Link phải bắt đầu bằng http:// hoặc https://';
-    else if (f.kind !== 'date' && f.kind !== 'url' && containsPasswordLike_(s)) errors[prefix + f.key] = PASSWORD_MESSAGE_;
+    // Link cũng kiểm tra (https://user:matkhau@host, …?pwd=…); mục Tài khoản kiểm tra thêm cặp "email / mật khẩu".
+    else if (f.kind !== 'date' && (containsPasswordLike_(s) ||
+        (f.kind !== 'url' && item.category === ACCOUNT_CATEGORY_CODE_ && containsCredentialPair_(s)))) {
+      errors[prefix + f.key] = PASSWORD_MESSAGE_;
+    }
     item[f.key] = truncate_(s, f.max);
   });
 
@@ -98,8 +102,12 @@ function validateHandoverInput_(data) {
 
   var rawItems = Array.isArray(data.items) ? data.items : [];
   var rawSupplies = Array.isArray(data.supplies) ? data.supplies : [];
+  var rawUniforms = Array.isArray(data.uniforms) ? data.uniforms : [];
   var items = [];
   var supplies = [];
+  var uniforms = [];
+  if (type !== 'OFFICE_SUPPLY' && rawSupplies.length) errors.supplies = 'Chỉ phiếu Văn phòng phẩm mới chọn sản phẩm văn phòng phẩm trong kho.';
+  if (type !== 'UNIFORM' && rawUniforms.length) errors.uniforms = 'Chỉ phiếu Đồng phục mới chọn đồng phục trong kho.';
   if (type === 'OFFICE_SUPPLY') {
     if (rawItems.length) errors.items = 'Phiếu văn phòng phẩm chỉ gồm sản phẩm chọn từ kho.';
     if (!rawSupplies.length) errors.supplies = 'Chọn ít nhất 1 văn phòng phẩm';
@@ -113,8 +121,21 @@ function validateHandoverInput_(data) {
       seen[line.productId] = true;
       return line;
     });
+  } else if (type === 'UNIFORM') {
+    if (rawItems.length) errors.items = 'Phiếu đồng phục chỉ gồm mẫu / size chọn từ kho đồng phục.';
+    if (!rawUniforms.length) errors.uniforms = 'Chọn ít nhất 1 mẫu đồng phục';
+    else if (rawUniforms.length > APP.MAX_ITEMS) errors.uniforms = 'Tối đa ' + APP.MAX_ITEMS + ' dòng đồng phục trong một phiếu';
+    var seenUniform = {};
+    uniforms = rawUniforms.slice(0, APP.MAX_ITEMS).map(function (raw, i) {
+      var line = validateUniformLine_(raw, i, errors);
+      var key = line.productId + '|' + line.issueKind;
+      if (line.productId && seenUniform[key]) {
+        errors['uniforms.' + i + '.productId'] = 'Mẫu / size / hình thức bị trùng — hãy gộp số lượng vào một dòng';
+      }
+      seenUniform[key] = true;
+      return line;
+    });
   } else {
-    if (rawSupplies.length) errors.supplies = 'Chỉ phiếu Văn phòng phẩm mới chọn sản phẩm trong kho.';
     if (!rawItems.length) errors.items = 'Cần ít nhất 1 nội dung bàn giao';
     else if (rawItems.length > APP.MAX_ITEMS) errors.items = 'Tối đa ' + APP.MAX_ITEMS + ' nội dung trong một biên bản';
     items = rawItems.slice(0, APP.MAX_ITEMS).map(function (raw, i) { return validateItem_(raw, i, errors); });
@@ -127,8 +148,16 @@ function validateHandoverInput_(data) {
     receiverEmployeeId: receiverId,
     note: note,
     items: items,
-    supplies: supplies
+    supplies: supplies,
+    uniforms: uniforms
   };
+}
+
+/** Kế hoạch kho của phiếu chọn mặt hàng từ kho (văn phòng phẩm / đồng phục); loại khác → null. */
+function stockPlanFor_(input) {
+  if (input.handoverType === 'OFFICE_SUPPLY') return vppPrepareSupplyItems_(input.supplies);
+  if (input.handoverType === 'UNIFORM') return dpPrepareUniformItems_(input.uniforms);
+  return null;
 }
 
 /**
@@ -147,6 +176,10 @@ function applyCategoryRules_(items, handoverType, allowInactive) {
     }
     if (cat.handoverType === 'OFFICE_SUPPLY' || item.category === VPP_CATEGORY_CODE) {
       errors[key] = 'Văn phòng phẩm phải tạo bằng phiếu "Văn phòng phẩm" (chọn sản phẩm từ kho).';
+      return;
+    }
+    if (cat.handoverType === 'UNIFORM' || item.category === UNIFORM_CATEGORY_CODE) {
+      errors[key] = 'Đồng phục phải tạo bằng phiếu "Đồng phục" (chọn mẫu, size từ kho đồng phục).';
       return;
     }
     if (!cat.active && !(allowInactive && allowInactive[item.category])) {
@@ -175,6 +208,8 @@ function applyCategoryRules_(items, handoverType, allowInactive) {
     item.productId = '';
     item.affectsInventory = false;
     item.overNormReason = '';
+    item.size = '';
+    item.issueKind = '';
   });
   if (Object.keys(errors).length) throw validationError_(errors);
   return items;
@@ -265,7 +300,9 @@ function itemToRow_(handoverId, item, order, now, revision) {
     created_at: now,
     product_id: item.productId || '',
     affects_inventory: item.affectsInventory ? 'TRUE' : '',
-    over_norm_reason: item.overNormReason || ''
+    over_norm_reason: item.overNormReason || '',
+    size: item.size || '',
+    issue_kind: item.issueKind || ''
   };
 }
 
@@ -294,7 +331,9 @@ function itemFromRow_(r) {
     note: r.note || '',
     productId: String(r.product_id || '').toLowerCase(),
     affectsInventory: toBool_(r.affects_inventory),
-    overNormReason: r.over_norm_reason || ''
+    overNormReason: r.over_norm_reason || '',
+    size: cleanLine_(r.size),
+    issueKind: ISSUE_KINDS[String(r.issue_kind || '').toUpperCase()] ? String(r.issue_kind).toUpperCase() : ''
   };
 }
 
@@ -388,13 +427,19 @@ function canonicalHandover_(rec, items) {
   };
 }
 
-/** Một dòng nội dung ở dạng chuẩn để băm — dùng chung cho mã băm nội dung và dấu vân tay yêu cầu tạo phiếu. */
+/**
+ * Một dòng nội dung ở dạng chuẩn để băm — dùng chung cho mã băm nội dung và dấu vân tay yêu cầu tạo phiếu.
+ * size / hình thức (v2.1, dòng đồng phục) chỉ được NỐI THÊM khi có giá trị: dòng của mọi phiếu cũ cho đúng dạng chuẩn như trước
+ * → mã băm của biên bản đã ký trước khi nâng cấp không đổi (không bị báo MISMATCH oan).
+ */
 function canonicalItem_(i) {
-  return [
+  var out = [
     i.category, i.productId || '', i.itemName, i.assetCode, i.serialNumber, i.model,
     i.quantity === null || i.quantity === undefined ? '' : String(i.quantity), i.unit || '', i.condition,
     i.description, i.workStatus, i.deadline, i.documentUrl, i.note
   ];
+  if (i.size || i.issueKind) out.push(i.size || '', i.issueKind || '');
+  return out;
 }
 
 function computeContentHash_(rec, items) {
@@ -442,7 +487,24 @@ function computeRecordHash_(rec) {
  */
 function sealKeyOf_(data) {
   var key = String((data && data.sealKey) || '').toLowerCase();
+  // Danh sách biên bản ký TRƯỚC khi cấu hình khóa (Worker: SEAL_LEGACY_IDS) — đặt lại mỗi request, không lưu ở Sheet / Script.
+  SEAL_LEGACY_IDS_ = {};
+  var legacy = data && Array.isArray(data.sealLegacyIds) ? data.sealLegacyIds : [];
+  legacy.forEach(function (id) {
+    if (isUuid_(id)) SEAL_LEGACY_IDS_[String(id).toLowerCase()] = true;
+  });
   return /^[0-9a-f]{64}$/.test(key) ? key : '';
+}
+
+/** Biên bản được phép thiếu niêm phong khi Worker có khóa (ký trước khi cấu hình RECORD_SEAL_SECRET). */
+var SEAL_LEGACY_IDS_ = {};
+
+/**
+ * Đã cấu hình khóa (Worker gửi kèm) → biên bản có mã nội dung PHẢI có niêm phong: ô record_seal trống nghĩa là đã bị xóa trên Sheet
+ * (người sửa Sheet xóa niêm phong + tính lại content_hash để "hợp thức hóa" dữ liệu đã sửa) — trừ biên bản trong SEAL_LEGACY_IDS.
+ */
+function sealRequired_(rec, sealKey) {
+  return Boolean(sealKey) && Boolean(rec.content_hash) && !SEAL_LEGACY_IDS_[String(rec.handover_id || '').toLowerCase()];
 }
 
 function recordSeal_(recordHash, sealKey) {
@@ -452,7 +514,8 @@ function recordSeal_(recordHash, sealKey) {
 /**
  * Toàn vẹn của biên bản đã ký — so dữ liệu HIỆN TẠI với lúc ký:
  *   content: nội dung (content_hash) · record: toàn biên bản (record_hash; null = ký trước khi có mã này)
- *   seal: OK / MISMATCH / UNVERIFIED (có niêm phong nhưng request không kèm khóa) / NONE (ký khi chưa cấu hình khóa)
+ *   seal: OK / MISMATCH / MISSING (đã cấu hình khóa nhưng ô niêm phong trống — bị xóa) / UNVERIFIED (có niêm phong nhưng request
+ *         không kèm khóa) / NONE (ký khi chưa cấu hình khóa — chỉ chấp nhận khi Worker chưa có khóa hoặc biên bản nằm trong SEAL_LEGACY_IDS)
  * Niêm phong được tính lại từ dữ liệu hiện tại (không tin record_hash lưu trên Sheet).
  */
 function integrityOf_(rec, items, sealKey) {
@@ -461,10 +524,10 @@ function integrityOf_(rec, items, sealKey) {
   var content = computeContentHash_(rec, items) === rec.content_hash;
   var recordHash = computeRecordHash_(rec);
   var record = rec.record_hash ? recordHash === rec.record_hash : null;
-  var seal = !rec.record_seal ? 'NONE'
+  var seal = !rec.record_seal ? (sealRequired_(rec, sealKey) ? 'MISSING' : 'NONE')
     : !sealKey ? 'UNVERIFIED'
       : timingSafeEqual_(recordSeal_(recordHash, sealKey), String(rec.record_seal).toLowerCase()) ? 'OK' : 'MISMATCH';
-  var ok = content && record !== false && seal !== 'MISMATCH';
+  var ok = content && record !== false && seal !== 'MISMATCH' && seal !== 'MISSING';
   return {
     status: ok ? 'OK' : 'MISMATCH',
     contentHash: rec.content_hash,
@@ -479,6 +542,7 @@ function integrityProblem_(integrity) {
   if (c.content === false) return 'nội dung bàn giao đã bị sửa';
   if (c.record === false) return 'ý kiến người nhận / thời điểm lập, ký / chữ ký đã bị sửa';
   if (c.seal === 'MISMATCH') return 'niêm phong không khớp — dữ liệu đã bị sửa và tính lại mã';
+  if (c.seal === 'MISSING') return 'ô niêm phong (record_seal) đã bị xóa trên Sheet';
   return 'mã toàn vẹn sai';
 }
 
@@ -500,7 +564,9 @@ function toPublicItem_(item) {
     documentUrl: item.documentUrl,
     note: item.note,
     productId: item.productId,
-    affectsInventory: item.affectsInventory
+    affectsInventory: item.affectsInventory,
+    size: item.size || '',
+    issueKind: item.issueKind || ''
   };
 }
 
@@ -687,13 +753,13 @@ function apiAdminCreateHandover_(data) {
   var requestId = optionalRequestId_(data.clientRequestId);
 
   var people = resolveParticipants_(input);
-  var plan = null;
+  var plan = stockPlanFor_(input);
+  var store = stockStoreForHandoverType_(input.handoverType);
   var items;
   var scope = null;
-  if (input.handoverType === 'OFFICE_SUPPLY') {
-    plan = vppPrepareSupplyItems_(input.supplies);
+  if (plan) {
     items = plan.items;
-    scope = resolveDepartmentScope_(people.receiver.department);
+    if (input.handoverType === 'OFFICE_SUPPLY') scope = resolveDepartmentScope_(people.receiver.department);
   } else {
     items = applyCategoryRules_(input.items, input.handoverType, null);
   }
@@ -720,8 +786,9 @@ function apiAdminCreateHandover_(data) {
             prev.handover_code + ' để kiểm tra rồi sửa (hoặc hủy) phiếu đó.', { existing: { id: prev.handover_id, code: prev.handover_code } });
         }
         // Gửi lại đúng yêu cầu đó (mạng chập chờn / bấm 2 lần) → trả phiếu đã tạo, đồng bộ lại kho nếu cần.
-        if (prev.handover_type === 'OFFICE_SUPPLY') {
-          syncHandoverStock_(prev, existingItems, actor, 'HANDOVER_RESERVE');
+        var prevStore = stockStoreForHandoverType_(prev.handover_type);
+        if (prevStore) {
+          syncHandoverStock_(prev, existingItems, actor, 'HANDOVER_RESERVE', prevStore);
         }
         return { duplicate: true, record: prev, warnings: [] };
       }
@@ -730,9 +797,9 @@ function apiAdminCreateHandover_(data) {
     var id = uuid_();
     var revision = uuid_();
     var warnings = [];
-    if (plan) {
-      vppValidateAllocation_(plan, scope, id); // INSUFFICIENT_STOCK / NORM_EXCEEDED (đọc tồn mới nhất trong khóa)
-    }
+    // INSUFFICIENT_STOCK / NORM_EXCEEDED (đọc tồn mới nhất trong khóa) — TRƯỚC khi ghi bất cứ gì.
+    if (input.handoverType === 'OFFICE_SUPPLY') vppValidateAllocation_(plan, scope, id);
+    else if (input.handoverType === 'UNIFORM') dpValidateAllocation_(plan, people.receiver, id);
     var code = nextHandoverCode_();
     var receiver = people.receiver;
     var record = {
@@ -778,7 +845,7 @@ function apiAdminCreateHandover_(data) {
     if (plan) {
       // Phiếu đã ghi xong mới giữ chỗ: nếu bước này lỗi, lần gửi lại cùng clientRequestId (hoặc "Đối soát kho") tự bổ sung
       // — không mất phiếu, không giữ chỗ 2 lần.
-      warnings = syncHandoverStock_(record, savedItems, actor, 'HANDOVER_RESERVE');
+      warnings = syncHandoverStock_(record, savedItems, actor, 'HANDOVER_RESERVE', store);
     }
     return { duplicate: false, record: record, warnings: warnings };
   });
@@ -857,14 +924,31 @@ function assertContentUnchanged_(rec, items, expectedHash) {
   return current;
 }
 
+/**
+ * Tra link TRƯỚC khi giữ khóa toàn cục (LockService): request với token bịa (không cần đăng nhập) không chiếm khóa của mọi thao tác
+ * ghi khác, và bị đếm vào giới hạn dò link theo IP (30 lần sai / 10 phút → chặn) như trang xem link. Trong khóa vẫn tra lại.
+ */
+function requireKnownTokenBeforeLock_(tokenHash, client) {
+  if (isLookupBlocked_(client.ipHash)) {
+    throw appError_('RATE_LIMITED', 'Bạn đã mở quá nhiều link không hợp lệ. Vui lòng thử lại sau ít phút.');
+  }
+  if (!findHandoverByTokenHash_(tokenHash)) {
+    registerLookupMiss_(client.ipHash);
+    throw appError_('NOT_FOUND', 'Link xác nhận không hợp lệ hoặc đã được thay bằng link mới.');
+  }
+}
+
 function apiConfirmHandover_(data) {
   var tokenHash = requireTokenHash_(data.tokenHash);
+  requireKnownTokenBeforeLock_(tokenHash, sanitizeClient_(data.client));
   if (data.agreed !== true) {
     throw validationError_({ agreed: 'Bạn cần tích xác nhận đã kiểm tra và nhận đủ các nội dung bàn giao' });
   }
   var expectedHash = requireContentHash_(data.contentHash);
   var comment = cleanText_(data.comment);
   if (comment.length > LIMITS.RECEIVER_COMMENT) throw validationError_({ comment: 'Tối đa ' + LIMITS.RECEIVER_COMMENT + ' ký tự' });
+  // Ghi chú khi ký nằm trong biên bản đã niêm phong (không sửa / xóa được) → không nhận mật khẩu.
+  if (containsPasswordLike_(comment)) throw validationError_({ comment: PASSWORD_MESSAGE_ });
   var signatureBytes = decodeSignaturePng_(data.signatureBase64);
   var client = sanitizeClient_(data.client);
   var sealKey = sealKeyOf_(data);
@@ -927,9 +1011,11 @@ function apiConfirmHandover_(data) {
         });
     });
     var stockError = '';
-    if (effectiveHandoverType_(merged, items) === 'OFFICE_SUPPLY') {
+    var confirmStore = stockStoreForHandoverType_(effectiveHandoverType_(merged, items));
+    if (confirmStore) {
       try {
-        syncHandoverStock_(merged, items, { id: rec.receiver_employee_id || 'receiver', name: rec.receiver_name }, 'HANDOVER_CONFIRM');
+        syncHandoverStock_(merged, items, { id: rec.receiver_employee_id || 'receiver', name: rec.receiver_name }, 'HANDOVER_CONFIRM',
+          confirmStore);
       } catch (e) {
         // Người nhận đã ký (đã nhận hàng) → phiếu vẫn xác nhận; lệch kho được ghi vào lịch sử phiếu, hiện ở
         // "Dữ liệu cần kiểm tra" và báo email cho quản trị viên để "Đối soát kho".
@@ -960,7 +1046,9 @@ function apiRequestRevision_(data) {
     throw validationError_({ reason: 'Vui lòng nhập lý do / nội dung cần sửa (ít nhất ' + LIMITS.REVISION_MIN + ' ký tự)' });
   }
   if (reason.length > LIMITS.RECEIVER_COMMENT) throw validationError_({ reason: 'Tối đa ' + LIMITS.RECEIVER_COMMENT + ' ký tự' });
+  if (containsPasswordLike_(reason)) throw validationError_({ reason: PASSWORD_MESSAGE_ });
   var client = sanitizeClient_(data.client);
+  requireKnownTokenBeforeLock_(tokenHash, client);
   enforceRateLimit_('revision', tokenHash.slice(0, 32), 10, 600);
 
   var result = withScriptLock_(function () {
@@ -1130,7 +1218,10 @@ function listHandovers_(handovers, q) {
         receiverName: h.receiver_name,
         receiverDepartment: h.receiver_department || '',
         itemCount: info.count,
-        categories: Object.keys(info.categories)
+        categories: Object.keys(info.categories),
+        // Ý kiến người nhận (ghi chú khi ký / lý do yêu cầu sửa) — biên bản ĐÃ KÝ kèm ghi chú có thể mâu thuẫn nội dung (ví dụ
+        // phiếu ghi size S, người nhận ghi "nhận size L") → hiện trên danh sách để quản trị viên kiểm tra.
+        receiverComment: truncate_(h.receiver_comment || '', 300)
       };
     }),
     total: matched.length,
@@ -1163,7 +1254,8 @@ function apiAdminUpdateHandover_(data) {
   var actor = sanitizeActor_(data.actor);
   var expectedHash = data.expectedContentHash ? requireContentHash_(data.expectedContentHash) : '';
   var people = resolveParticipants_(input);
-  var plan = input.handoverType === 'OFFICE_SUPPLY' ? vppPrepareSupplyItems_(input.supplies) : null;
+  var plan = stockPlanFor_(input);
+  var store = stockStoreForHandoverType_(input.handoverType);
 
   var outcome = withScriptLock_(function () {
     var found = findHandoverById_(id);
@@ -1185,17 +1277,18 @@ function apiAdminUpdateHandover_(data) {
     }
     var currentType = effectiveHandoverType_(rec, previousItems);
     var stored = String(rec.handover_type || '').toUpperCase();
-    if ((stored && stored !== input.handoverType) || (!stored && input.handoverType === 'OFFICE_SUPPLY') ||
+    if ((stored && stored !== input.handoverType) || (!stored && plan) ||
         (stored === '' && currentType !== input.handoverType && input.handoverType !== 'OTHER')) {
       throw appError_('INVALID_STATE', 'Không thể đổi loại phiếu (' + (HANDOVER_TYPES[currentType] || currentType) +
         '). Hãy hủy phiếu và tạo phiếu mới.');
     }
     var now = nowIso_();
     var receiver = people.receiver;
-    var scope = plan ? resolveDepartmentScope_(receiver.department) : null;
+    var scope = input.handoverType === 'OFFICE_SUPPLY' ? resolveDepartmentScope_(receiver.department) : null;
     var items;
     if (plan) {
-      vppValidateAllocation_(plan, scope, id);
+      if (input.handoverType === 'OFFICE_SUPPLY') vppValidateAllocation_(plan, scope, id);
+      else dpValidateAllocation_(plan, receiver, id);
       items = plan.items;
     } else {
       var allowInactive = {};
@@ -1218,7 +1311,7 @@ function apiAdminUpdateHandover_(data) {
       updated_at: now,
       handover_type: input.handoverType
     };
-    if (plan) changes.vpp_scope_id = scope ? scope.scopeId : '';
+    if (input.handoverType === 'OFFICE_SUPPLY') changes.vpp_scope_id = scope ? scope.scopeId : '';
     if (receiverChanged) {
       // Đổi người nhận → vô hiệu link cũ (đã gửi cho người nhận trước).
       changes.public_token_hash = candidateHash;
@@ -1242,7 +1335,7 @@ function apiAdminUpdateHandover_(data) {
         copy.itemOrder = i + 1;
         return copy;
       });
-      warnings = syncHandoverStock_(merged, newItems, actor, 'HANDOVER_UPDATE');
+      warnings = syncHandoverStock_(merged, newItems, actor, 'HANDOVER_UPDATE', store);
     }
     var marker = editPendingMarker_(revision, baseHash, now, baseReceiverId);
     var rowIndex = updateRowFields_(SHEETS.HANDOVERS, found.rowIndex, rec, { edit_pending: marker });
@@ -1294,8 +1387,9 @@ function apiAdminCancelHandover_(data) {
     var items = loadItems_(id, rec);
     // Trả số lượng đang giữ chỗ TRƯỚC, rồi mới ghi trạng thái hủy: lỗi kho → phiếu chưa bị hủy, quản trị viên thấy lỗi và hủy
     // lại sau khi đối soát — không có phiếu "đã hủy" mà kho vẫn giữ hàng cho nó (bấm hủy lại chỉ gặp "đã hủy trước đó").
-    if (effectiveHandoverType_(merged, items) === 'OFFICE_SUPPLY') {
-      syncHandoverStock_(merged, items, actor, 'HANDOVER_CANCEL');
+    var cancelStore = stockStoreForHandoverType_(effectiveHandoverType_(merged, items));
+    if (cancelStore) {
+      syncHandoverStock_(merged, items, actor, 'HANDOVER_CANCEL', cancelStore);
     }
     updateRowFields_(SHEETS.HANDOVERS, found.rowIndex, rec, changes);
     afterCommit_('cancel_clear_otp', rec.handover_code, function () { clearConfirmOtp_(id); });
@@ -1345,7 +1439,8 @@ function apiAdminGetSignature_(data) {
   var recordHash = computeRecordHash_(rec);
   var sealKey = sealKeyOf_(data);
   if ((rec.record_hash && recordHash !== rec.record_hash) ||
-      (rec.record_seal && sealKey && !timingSafeEqual_(recordSeal_(recordHash, sealKey), String(rec.record_seal).toLowerCase()))) {
+      (rec.record_seal && sealKey && !timingSafeEqual_(recordSeal_(recordHash, sealKey), String(rec.record_seal).toLowerCase())) ||
+      (!rec.record_seal && sealRequired_(rec, sealKey))) {
     throw appError_('INTEGRITY_ERROR', 'Dữ liệu chữ ký của biên bản trên Google Sheet đã bị sửa sau khi ký (không khớp mã toàn vẹn) — không ' +
       'hiện như chữ ký của biên bản này. Hãy kiểm tra lịch sử chỉnh sửa của Sheet.');
   }
@@ -1386,11 +1481,27 @@ function apiAdminOverview_() {
         revisionRequestedAt: h.revision_requested_at || ''
       };
     });
+  // Biên bản đã ký KÈM ghi chú của người nhận (30 ngày gần nhất) — ghi chú có thể trái nội dung đã ký, cần quản trị viên xem lại.
+  var since = formatIso_(new Date(Date.now() - 30 * 86400000));
+  var signedWithComment = handovers
+    .filter(function (h) {
+      return h.status === STATUS.CONFIRMED && cleanText_(h.receiver_comment) && String(h.confirmed_at || '') >= since;
+    })
+    .sort(function (a, b) { return a.confirmed_at < b.confirmed_at ? 1 : -1; })
+    .slice(0, 10)
+    .map(function (h) {
+      return {
+        id: h.handover_id, code: h.handover_code, receiverName: h.receiver_name, receiverComment: truncate_(h.receiver_comment, 300),
+        confirmedAt: h.confirmed_at || ''
+      };
+    });
   return {
     stats: list.stats,
     revisionRequested: revision,
+    signedWithComment: signedWithComment,
     recent: list.items.slice(0, 8),
     vpp: vppAlertsSummary_(),
+    uniform: dpAlertsSummary_(),
     // Gửi email thông báo / mã OTP lỗi gần đây → hiện cảnh báo trên Tổng quan (không im lặng).
     notify: notifyStatus_()
   };
@@ -1404,5 +1515,5 @@ function apiAdminBadges_() {
   var proposals = readColumns_(SHEETS.VPP_PROPOSALS, ['proposal_id', 'status']).filter(function (p) {
     return p.status === PROPOSAL_STATUS.SUBMITTED;
   }).length;
-  return { revisionRequested: revision, submittedProposals: proposals };
+  return { revisionRequested: revision, submittedProposals: proposals, overdueUniformLoans: dpOverdueLoanCount_() };
 }

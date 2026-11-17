@@ -2,6 +2,7 @@ import { Ban, CircleCheck, FileDown, Link2Off, Mail, MailCheck, MessageSquareWar
 import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react';
 import { useParams } from 'react-router';
 import { HANDOVER_TYPE_LABELS, LIMITS, OTP_LENGTH } from '../../shared/constants';
+import { containsPasswordLike } from '../../shared/text';
 import type { ConfirmOtpInfo, PublicHandover, PublicHandoverResponse } from '../../shared/types';
 import { HandoverItemsView } from '../components/handover/HandoverItemsView';
 import { PartiesView } from '../components/handover/PartiesView';
@@ -19,6 +20,8 @@ import { cn } from '../utils/cn';
 import { formatDateTime } from '../utils/format';
 
 const OTP_PATTERN = new RegExp(`^\\d{${OTP_LENGTH}}$`);
+/** = PASSWORD_FORBIDDEN_MESSAGE (shared/schemas.ts) — không nhập schemas (zod) vào trang công khai. */
+const NO_PASSWORD_MESSAGE = 'Không ghi mật khẩu vào biên bản. Nếu cần đổi mật khẩu, hãy nhờ quản trị viên hoặc tự đặt lại.';
 
 export default function ConfirmHandoverPage() {
   const { token = '' } = useParams();
@@ -278,6 +281,13 @@ function StatusBanner({ token, handover }: { token: string; handover: PublicHand
         >
           {downloading ? 'Đang chuẩn bị PDF…' : 'Tải PDF biên bản'}
         </Button>
+        {/* Trình duyệt trong Zalo / Facebook trên iPhone thường không lưu được tệp tải bằng nút trên → mở thẳng PDF. */}
+        <p className="mt-2 text-xs text-emerald-800">
+          Không tải được?{' '}
+          <a href={publicPdfUrl(token)} target="_blank" rel="noopener noreferrer" className="font-semibold underline">
+            Mở PDF trong trình duyệt
+          </a>
+        </p>
       </section>
     );
   }
@@ -452,6 +462,7 @@ function ActionPanel({
     if (!pad || pad.isEmpty()) next.signature = 'Vui lòng ký tên vào khung bên dưới.';
     else if (pad.inkLength() < MIN_INK_LENGTH) next.signature = 'Chữ ký quá ngắn. Vui lòng xóa và ký lại rõ ràng hơn.';
     if (comment.length > LIMITS.receiverComment) next.comment = `Tối đa ${LIMITS.receiverComment} ký tự.`;
+    else if (containsPasswordLike(comment)) next.comment = NO_PASSWORD_MESSAGE;
     setErrors(next);
     setSubmitError(null);
     if (Object.keys(next).length > 0) {
@@ -489,6 +500,10 @@ function ActionPanel({
         onReload();
         return;
       }
+      if (err instanceof ApiClientError && err.fieldErrors.comment) {
+        setErrors({ comment: err.fieldErrors.comment });
+        document.getElementById('confirm-comment')?.focus();
+      }
       if (err instanceof ApiClientError && (err.fieldErrors.signature || err.fieldErrors.otp)) {
         setErrors({ signature: err.fieldErrors.signature, otp: err.fieldErrors.otp });
         if (err.fieldErrors.otp) {
@@ -507,8 +522,10 @@ function ActionPanel({
     event.preventDefault();
     if (submitting) return;
     const text = reason.trim();
-    if (text.length < LIMITS.revisionReasonMin) {
-      setErrors({ reason: `Vui lòng nhập lý do / nội dung cần sửa (ít nhất ${LIMITS.revisionReasonMin} ký tự).` });
+    if (text.length < LIMITS.revisionReasonMin || containsPasswordLike(text)) {
+      setErrors({
+        reason: text.length < LIMITS.revisionReasonMin ? `Vui lòng nhập lý do / nội dung cần sửa (ít nhất ${LIMITS.revisionReasonMin} ký tự).` : NO_PASSWORD_MESSAGE,
+      });
       document.getElementById('revision-reason')?.focus();
       return;
     }
@@ -699,6 +716,28 @@ function ActionPanel({
             onChange={(event) => onDraft({ comment: event.target.value })}
           />
         </Field>
+        {comment.trim() && (
+          <InlineAlert tone="warning">
+            <p>
+              Ký kèm ghi chú nghĩa là bạn <strong>vẫn xác nhận đã nhận đủ và đúng</strong> các nội dung trên. Nếu ghi chú là chỗ sai / thiếu (hỏng, thiếu
+              phụ kiện, sai size…), hãy gửi <strong>yêu cầu chỉnh sửa</strong> thay vì ký.
+            </p>
+            <Button
+              type="button"
+              variant="secondary"
+              size="sm"
+              className="mt-2"
+              icon={<MessageSquareWarning className="size-4" aria-hidden="true" />}
+              onClick={() => {
+                onDraft({ mode: 'revision', reason: reason.trim() ? reason : comment });
+                setSubmitError(null);
+                window.setTimeout(() => document.getElementById('revision-reason')?.focus(), 0);
+              }}
+            >
+              Chuyển ghi chú thành yêu cầu chỉnh sửa
+            </Button>
+          </InlineAlert>
+        )}
 
         {submitError && <InlineAlert>{submitError}</InlineAlert>}
 

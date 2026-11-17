@@ -26,6 +26,17 @@ const VppProposalsPage = lazy(() => import('./pages/admin/vpp/VppProposalsPage')
 const VppProposalDetailPage = lazy(() => import('./pages/admin/vpp/VppProposalDetailPage'));
 const VppMovementsPage = lazy(() => import('./pages/admin/vpp/VppMovementsPage'));
 const VppDataReviewPage = lazy(() => import('./pages/admin/vpp/VppDataReviewPage'));
+const VppReceiptPage = lazy(() => import('./pages/admin/vpp/VppReceiptPage'));
+const VppIssuePage = lazy(() => import('./pages/admin/vpp/VppIssuePage'));
+const VppVouchersPage = lazy(() => import('./pages/admin/vpp/VppVouchersPage'));
+const VppImportPage = lazy(() => import('./pages/admin/vpp/VppImportPage'));
+const UniformOverviewPage = lazy(() => import('./pages/admin/uniform/UniformOverviewPage'));
+const UniformStockPage = lazy(() => import('./pages/admin/uniform/UniformStockPage'));
+const UniformEmployeesPage = lazy(() => import('./pages/admin/uniform/UniformEmployeesPage'));
+const UniformEmployeeDetailPage = lazy(() => import('./pages/admin/uniform/UniformEmployeeDetailPage'));
+const UniformHoldingsPage = lazy(() => import('./pages/admin/uniform/UniformHoldingsPage'));
+const UniformNormsPage = lazy(() => import('./pages/admin/uniform/UniformNormsPage'));
+const UniformMovementsPage = lazy(() => import('./pages/admin/uniform/UniformMovementsPage'));
 const AdminEmployeesPage = lazy(() => import('./pages/admin/AdminEmployeesPage'));
 const AdminSettingsPage = lazy(() => import('./pages/admin/AdminSettingsPage'));
 
@@ -67,6 +78,17 @@ const router = createBrowserRouter(
         <Route path="vpp/de-xuat/:id" element={<VppProposalDetailPage />} />
         <Route path="vpp/lich-su" element={<VppMovementsPage />} />
         <Route path="vpp/data-review" element={<VppDataReviewPage />} />
+        <Route path="vpp/nhap-kho" element={<VppReceiptPage />} />
+        <Route path="vpp/xuat-kho" element={<VppIssuePage />} />
+        <Route path="vpp/phieu-kho" element={<VppVouchersPage />} />
+        <Route path="vpp/nhap-excel" element={<VppImportPage />} />
+        <Route path="dong-phuc" element={<UniformOverviewPage />} />
+        <Route path="dong-phuc/ton-kho" element={<UniformStockPage />} />
+        <Route path="dong-phuc/nhan-vien" element={<UniformEmployeesPage />} />
+        <Route path="dong-phuc/nhan-vien/:employeeId" element={<UniformEmployeeDetailPage />} />
+        <Route path="dong-phuc/muon-tra" element={<UniformHoldingsPage />} />
+        <Route path="dong-phuc/tieu-chuan" element={<UniformNormsPage />} />
+        <Route path="dong-phuc/lich-su" element={<UniformMovementsPage />} />
         <Route path="nhan-vien" element={<AdminEmployeesPage />} />
         <Route path="cai-dat" element={<AdminSettingsPage />} />
         <Route path="*" element={<NotFoundPage home="/admin" />} />

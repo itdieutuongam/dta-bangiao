@@ -152,7 +152,7 @@ describe('Worker API end-to-end (Worker → Apps Script giả lập → Sheet/Dr
     expect(json).toMatchObject({
       success: true,
       error: null,
-      data: { app: 'dta-handover', version: '2.0.0', cloudflare: 'ok', appsScript: 'ok', database: 'ok', drive: 'ok' },
+      data: { app: 'dta-handover', version: '2.1.0', cloudflare: 'ok', appsScript: 'ok', database: 'ok', drive: 'ok' },
     });
     expect(Object.keys(json.data.configured).sort()).toEqual(['admin', 'appsScript', 'session']);
     const text = JSON.stringify(json);
@@ -551,7 +551,11 @@ describe('Worker API — mã OTP khi ký, huy hiệu menu, xuất CSV', () => {
     expect((await call('GET', '/api/admin/badges')).status).toBe(401);
     const badges = await call('GET', '/api/admin/badges', { cookie: adminSession });
     expect(badges.status).toBe(200);
-    expect(badges.json.data).toEqual({ revisionRequested: expect.any(Number), submittedProposals: expect.any(Number) });
+    expect(badges.json.data).toEqual({
+      revisionRequested: expect.any(Number),
+      submittedProposals: expect.any(Number),
+      overdueUniformLoans: expect.any(Number),
+    });
     expect(badges.json.data.revisionRequested).toBeGreaterThanOrEqual(1); // từ test "yêu cầu chỉnh sửa bắt buộc lý do"
   });
 
@@ -628,6 +632,14 @@ describe('[RÀ SOÁT 3] Worker API — niêm phong biên bản, gửi lại cùn
       JSON.stringify(emulator.runtime.logs);
     expect(google).not.toContain(sealKey);
     expect(google).not.toContain(SEAL_SECRET);
+
+    // Ký khi Worker CHƯA có khóa, rồi mới cấu hình khóa: thiếu niêm phong = bị xóa (MISSING), trừ biên bản khai báo trong SEAL_LEGACY_IDS.
+    const early = await createViaAdmin({}, '10.7.0.1');
+    expect((await confirm(tokenOf(early.link), {}, '10.7.0.2')).status).toBe(200);
+    expect((await detail(early.id, sealed)).json.data.handover.integrity).toMatchObject({ status: 'MISMATCH', checks: { seal: 'MISSING' } });
+    const legacyEnv = { ...sealed, SEAL_LEGACY_IDS: ` ${early.id.toUpperCase()}, khong-phai-uuid ;` };
+    expect((await detail(early.id, legacyEnv)).json.data.handover.integrity).toMatchObject({ status: 'OK', checks: { seal: 'NONE' } });
+    expect((await detail(created.id, legacyEnv)).json.data.handover.integrity).toMatchObject({ status: 'OK', checks: { seal: 'OK' } });
 
     expect((await call('GET', '/api/admin/system', { cookie: adminSession, envOverride: sealed })).json.data.worker.recordSeal).toBe(true);
     expect((await call('GET', '/api/admin/system', { cookie: adminSession })).json.data.worker.recordSeal).toBe(false);
@@ -796,5 +808,204 @@ describe('Worker API — văn phòng phẩm', () => {
     expect(receive.status, JSON.stringify(receive.json)).toBe(200);
     expect(receive.json.data.proposal.status).toBe('RECEIVED');
     expect((await products('giay a4'))[0].stock.onHand).toBe(2);
+  });
+});
+
+describe('VPP qua Worker — phiếu nhập / xuất kho, cập nhật từ Excel (v2.1)', () => {
+  const ip = '10.8.0.1';
+  const get = (path: string) => call('GET', path, { cookie: adminSession, ip });
+  const post = (path: string, body: unknown) => call('POST', path, { cookie: adminSession, ip, body });
+  const productNamed = async (name: string) =>
+    ((await get('/api/admin/vpp/products?includeArchived=true')).json.data.products as Array<{ productId: string; productName: string; stock: { onHand: number | null } }>).find(
+      (p) => p.productName === name,
+    )!;
+
+  it('nhập kho nhiều mặt hàng → xuất kho cho phòng ban → danh sách phiếu + tổng theo phòng ban + CSV', async () => {
+    expect((await call('POST', '/api/admin/vpp/stock/issue', { ip, body: {} })).status).toBe(401);
+    const pin = await productNamed('Pin 2A Maxell');
+    const before = pin.stock.onHand ?? 0;
+    const bad = await post('/api/admin/vpp/stock/receipt', { reasonType: 'MUA_TRUC_TIEP', lines: [], clientRequestId: crypto.randomUUID() });
+    expect(bad.status).toBe(422);
+    const receiptBody = {
+      reasonType: 'MUA_TRUC_TIEP', date: '2026-11-17', supplier: 'Khai Trí', invoiceNo: 'HD-9', note: '', updatePrice: false,
+      lines: [{ productId: pin.productId, quantity: 10, unitPrice: 3500, note: '' }], clientRequestId: crypto.randomUUID(),
+    };
+    const receipt = await post('/api/admin/vpp/stock/receipt', receiptBody);
+    expect(receipt.status, JSON.stringify(receipt.json)).toBe(201);
+    expect(receipt.json.data.voucher.voucherCode).toMatch(/^NK-\d{8}-\d{4}$/);
+    expect((await post('/api/admin/vpp/stock/receipt', receiptBody)).status).toBe(200); // gửi lại → duplicate, không nhập 2 lần
+    expect((await productNamed('Pin 2A Maxell')).stock.onHand).toBe(before + 10);
+
+    const noTarget = await post('/api/admin/vpp/stock/issue', { lines: [{ productId: pin.productId, quantity: 1 }], clientRequestId: crypto.randomUUID() });
+    expect(noTarget.status).toBe(422);
+    expect(noTarget.json.error.details.fieldErrors).toHaveProperty('department');
+    const tooMuch = await post('/api/admin/vpp/stock/issue', { department: 'HCNS', lines: [{ productId: pin.productId, quantity: 100000 }], clientRequestId: crypto.randomUUID() });
+    expect(tooMuch.status).toBe(409);
+    expect(tooMuch.json.error.code).toBe('INSUFFICIENT_STOCK');
+    const issue = await post('/api/admin/vpp/stock/issue', { department: 'HCNS', lines: [{ productId: pin.productId, quantity: 4, note: 'pin chuột' }], clientRequestId: crypto.randomUUID() });
+    expect(issue.status, JSON.stringify(issue.json)).toBe(201);
+    expect(issue.json.data.voucher).toMatchObject({ voucherType: 'OUT', department: 'HCNS', totalQuantity: 4 });
+    expect((await productNamed('Pin 2A Maxell')).stock.onHand).toBe(before + 6);
+
+    const list = await get('/api/admin/vpp/vouchers?type=OUT');
+    expect(list.status).toBe(200);
+    expect(list.json.data.issueSummary.totals.HCNS).toBeGreaterThanOrEqual(4);
+    const detail = await get(`/api/admin/vpp/vouchers/${issue.json.data.voucher.voucherId}`);
+    expect(detail.json.data.voucher.lines[0]).toMatchObject({ productName: 'Pin 2A Maxell', quantity: 4, movementType: 'ISSUE' });
+    expect((await get('/api/admin/vpp/vouchers/khong-phai-uuid')).status).toBe(404);
+
+    const csv = await call('GET', '/api/admin/export/vpp-vouchers.csv?type=OUT', { cookie: adminSession, ip: '10.8.0.2' });
+    expect(csv.status).toBe(200);
+    expect(csv.buffer.subarray(0, 3).toString('hex')).toBe('efbbbf');
+    expect(csv.buffer.toString('utf8')).toContain('"Phiếu xuất"');
+  });
+
+  it('cập nhật từ Excel: xem trước (không ghi) → áp dụng (gửi lại không làm 2 lần)', async () => {
+    const rows = [
+      { line: 2, code: 'G1155', name: 'Giấy Decal A4 đế xanh', unit: 'Xấp/ 100 tờ', price: 72600, stock: 3, minimumStock: null },
+      { line: 3, code: 'P2007', name: 'Pin 3A Maxell', unit: 'Viên', price: 3500, stock: 4, minimumStock: null },
+    ];
+    const tooBig = await post('/api/admin/vpp/import/preview', { rows: [{ line: 1, code: 'x y', name: '' }] });
+    expect(tooBig.status).toBe(422);
+    const preview = await post('/api/admin/vpp/import/preview', { rows, options: { setStock: true, archiveMissing: false }, fileName: 'test.xlsx' });
+    expect(preview.status, JSON.stringify(preview.json)).toBe(200);
+    expect(preview.json.data.plan.summary.create).toBeGreaterThanOrEqual(1);
+    expect(await productNamed('Giấy Decal A4 đế xanh')).toBeUndefined();
+
+    const body = { rows, options: { setStock: true, archiveMissing: false }, fileName: 'test.xlsx', clientRequestId: crypto.randomUUID() };
+    const applied = await post('/api/admin/vpp/import/apply', body);
+    expect(applied.status, JSON.stringify(applied.json)).toBe(200);
+    expect(applied.json.data).toMatchObject({ duplicate: false });
+    expect((await productNamed('Giấy Decal A4 đế xanh')).stock.onHand).toBe(3);
+    expect((await productNamed('Pin 3A Maxell')).stock.onHand).toBe(4);
+    const again = await post('/api/admin/vpp/import/apply', body);
+    expect(again.json.data.duplicate).toBe(true);
+  });
+});
+
+describe('Đồng phục qua Worker (/api/admin/uniform/*)', () => {
+  const ip = '10.7.0.1';
+  const get = (path: string) => call('GET', path, { cookie: adminSession, ip });
+  const send = (method: string, path: string, body: unknown) => call(method, path, { cookie: adminSession, ip, body });
+  const inDays = (days: number) => new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Ho_Chi_Minh' }).format(new Date(Date.now() + days * 86_400_000));
+
+  it('quyền & kiểm tra đầu vào: chỉ admin, ghi phải cùng Origin, mã NV trên URL hợp lệ', async () => {
+    emulator.runtime.run('seedUniformCatalog');
+    for (const path of ['dashboard', 'stock', 'employees', 'holdings', 'norms', 'movements', 'employees/DEMO-519']) {
+      expect((await call('GET', `/api/admin/uniform/${path}`, { ip })).status, path).toBe(401);
+    }
+    expect((await call('POST', '/api/admin/uniform/stock/in', { ip, body: {} })).status).toBe(401);
+    expect((await call('POST', '/api/admin/uniform/returns', { cookie: adminSession, ip, body: {}, origin: 'https://evil.example' })).status).toBe(403);
+    expect((await get('/api/admin/uniform/employees/%3Cscript%3E')).status).toBe(404);
+    const dash = await get('/api/admin/uniform/dashboard');
+    expect(dash.status, JSON.stringify(dash.json)).toBe(200);
+    expect(dash.json.data.counts.models).toBe(7);
+  });
+
+  it('nhập kho → phiếu đồng phục (cấp phát + cho mượn) → ký → trả đồ mượn → tiêu chuẩn theo nhóm → xuất CSV', async () => {
+    const stock = await get('/api/admin/uniform/stock');
+    const red = stock.json.data.models.find((m: { modelName: string }) => m.modelName === 'Áo sơmi đỏ');
+    expect(red).toBeTruthy();
+
+    // Nhập kho: size sai → 422 (Worker); gửi lại cùng mã thao tác → không cộng 2 lần.
+    const badSize = await send('POST', '/api/admin/uniform/stock/in', { modelId: red.modelId, size: 'l x', quantity: 2, reasonType: 'MUA_MOI', clientRequestId: crypto.randomUUID() });
+    expect(badSize.status).toBe(422);
+    expect(badSize.json.error.details.fieldErrors).toHaveProperty('size');
+    const stockIn = { modelId: red.modelId, size: 'L', condition: 'NEW', quantity: 10, reasonType: 'MUA_MOI', unitPrice: 185000, date: '', note: '', clientRequestId: crypto.randomUUID() };
+    const in1 = await send('POST', '/api/admin/uniform/stock/in', stockIn);
+    expect(in1.status, JSON.stringify(in1.json)).toBe(200);
+    expect(in1.json.data.sku.stock).toMatchObject({ onHand: 10, reserved: 0, available: 10 });
+    const in2 = await send('POST', '/api/admin/uniform/stock/in', stockIn);
+    expect(in2.json.data).toMatchObject({ duplicate: true, sku: { stock: { onHand: 10 } } });
+    const redL = in1.json.data.sku.productId as string;
+
+    // Ngữ cảnh form của người nhận: tiêu chuẩn mặc định 3 / năm.
+    const ctx = await get('/api/admin/uniform/handover-context?receiverEmployeeId=DEMO-519');
+    expect(ctx.status, JSON.stringify(ctx.json)).toBe(200);
+    expect(ctx.json.data.usage).toMatchObject({ yearlyQuota: 3, issued: 0, pending: 0, remaining: 3 });
+
+    const uniformInput = (uniforms: unknown[]) => handoverInput({ handoverType: 'UNIFORM', items: [], uniforms, receiverEmployeeId: 'DEMO-519' });
+    // Cho mượn thiếu hạn trả → Worker chặn (422, đúng ô).
+    const noDue = await call('POST', '/api/admin/handovers', { cookie: adminSession, ip: '10.7.0.2', body: uniformInput([{ productId: redL, quantity: 1, issueKind: 'CHO_MUON', dueDate: '' }]) });
+    expect(noDue.status).toBe(422);
+    expect(noDue.json.error.details.fieldErrors).toHaveProperty(['uniforms.0.dueDate']);
+    // Không đủ tồn → 409.
+    const tooMany = await call('POST', '/api/admin/handovers', { cookie: adminSession, ip: '10.7.0.2', body: uniformInput([{ productId: redL, quantity: 50, issueKind: 'CHO_MUON', dueDate: inDays(7) }]) });
+    expect(tooMany.status).toBe(409);
+    expect(tooMany.json.error.code).toBe('INSUFFICIENT_STOCK');
+
+    const created = await createViaAdmin(
+      {
+        handoverType: 'UNIFORM',
+        items: [],
+        receiverEmployeeId: 'DEMO-519',
+        uniforms: [
+          { productId: redL, quantity: 2, issueKind: 'CAP_PHAT' },
+          { productId: redL, quantity: 1, issueKind: 'CHO_MUON', dueDate: inDays(7), note: 'Mượn dự sự kiện' },
+        ],
+      },
+      '10.7.0.2',
+    );
+    expect((await get('/api/admin/uniform/stock')).json.data.models.find((m: { modelId: string }) => m.modelId === red.modelId).stock).toMatchObject({ onHand: 10, reserved: 3 });
+
+    // Vượt tiêu chuẩn năm (2 đang chờ ký + 2 > 3) mà chưa ghi lý do → 422 NORM_EXCEEDED.
+    const over = await call('POST', '/api/admin/handovers', { cookie: adminSession, ip: '10.7.0.2', body: uniformInput([{ productId: redL, quantity: 2, issueKind: 'CAP_PHAT' }]) });
+    expect(over.status).toBe(422);
+    expect(over.json.error.code).toBe('NORM_EXCEEDED');
+
+    // Người nhận ký → xuất kho; đồ mượn hiện ở trang Mượn / Trả.
+    const signed = await confirm(tokenOf(created.link), {}, '10.7.0.3');
+    expect(signed.status, JSON.stringify(signed.json)).toBe(200);
+    const loans = await get('/api/admin/uniform/holdings?status=loans');
+    expect(loans.json.data.items).toHaveLength(1);
+    const loan = loans.json.data.items[0];
+    expect(loan).toMatchObject({ employeeId: 'DEMO-519', issueKind: 'CHO_MUON', quantity: 1, outstanding: 1, size: 'L', overdue: false });
+
+    const returnBody = { handoverId: loan.handoverId, itemId: loan.itemId, quantity: 1, result: 'RESTOCK', restockCondition: 'USED', reason: 'TRA_MUON', note: '', clientRequestId: crypto.randomUUID() };
+    const returned = await send('POST', '/api/admin/uniform/returns', returnBody);
+    expect(returned.status, JSON.stringify(returned.json)).toBe(201);
+    expect(returned.json.data.holding.outstanding).toBe(0);
+    const again = await send('POST', '/api/admin/uniform/returns', returnBody);
+    expect(again.status).toBe(200);
+    expect(again.json.data.duplicate).toBe(true);
+    const after = (await get('/api/admin/uniform/stock')).json.data.models.find((m: { modelId: string }) => m.modelId === red.modelId);
+    expect(after.skus.find((s: { size: string; condition: string }) => s.size === 'L' && s.condition === 'NEW').stock).toMatchObject({ onHand: 7, reserved: 0 });
+    expect(after.skus.find((s: { size: string; condition: string }) => s.size === 'L' && s.condition === 'USED').stock.onHand).toBe(1);
+
+    // Sổ cấp phát: đồ mượn không tính tiêu chuẩn.
+    const register = await get('/api/admin/uniform/employees?q=DEMO-519');
+    expect(register.json.data.employees[0].usage).toMatchObject({ yearlyQuota: 3, issued: 2, remaining: 1, source: 'DEFAULT' });
+    const detail = await get('/api/admin/uniform/employees/DEMO-519');
+    expect(detail.status).toBe(200);
+    expect(detail.json.data.returns).toHaveLength(1);
+    expect(detail.json.data.issues[0].lines).toHaveLength(2);
+
+    // Hồ sơ size: chuẩn hóa chữ hoa.
+    const profile = await send('PUT', '/api/admin/uniform/employees/DEMO-519/profile', { gender: 'NAM', uniformSize: 'xl' });
+    expect(profile.status, JSON.stringify(profile.json)).toBe(200);
+    expect(profile.json.data.employee).toMatchObject({ gender: 'NAM', uniformSize: 'XL' });
+
+    // Tiêu chuẩn theo nhóm + gán phòng ban của người nhận vào nhóm → tiêu chuẩn mới áp dụng ngay.
+    const norm = await send('POST', '/api/admin/uniform/norms', { scopeName: 'Showroom', modelId: '', gender: '', yearlyQuantity: 6, note: '', effectiveFrom: '', effectiveTo: '', active: true });
+    expect(norm.status, JSON.stringify(norm.json)).toBe(201);
+    const department = register.json.data.employees[0].department as string;
+    const mapped = await send('PUT', '/api/admin/uniform/scope-mapping', { department, scopeId: norm.json.data.norm.scopeId });
+    expect(mapped.status, JSON.stringify(mapped.json)).toBe(200);
+    const regrouped = await get('/api/admin/uniform/employees?q=DEMO-519');
+    expect(regrouped.json.data.employees[0].usage).toMatchObject({ yearlyQuota: 6, issued: 2, remaining: 4, source: 'RULE' });
+
+    const moves = await get(`/api/admin/uniform/movements?modelId=${red.modelId}&type=RETURN`);
+    expect(moves.json.data.total).toBe(1);
+
+    for (const dataset of ['uniform-stock.csv', 'uniform-movements.csv?type=OUT', 'uniform-employees.csv?q=DEMO-519', 'uniform-holdings.csv?status=all']) {
+      const out = await call('GET', `/api/admin/export/${dataset}`, { cookie: adminSession, ip: '10.7.0.4' });
+      expect(out.status, dataset).toBe(200);
+      expect(out.buffer.subarray(0, 3).toString('hex'), dataset).toBe('efbbbf');
+      expect(Number(out.res.headers.get('X-Export-Rows')), dataset).toBeGreaterThan(0);
+    }
+
+    // Huy hiệu menu + tổng quan quản trị có phần đồng phục.
+    const overview = await call('GET', '/api/admin/overview', { cookie: adminSession, ip });
+    expect(overview.json.data.uniform).toMatchObject({ loansOverdue: 0 });
   });
 });

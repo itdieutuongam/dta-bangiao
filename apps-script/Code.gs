@@ -26,7 +26,7 @@ var SCHEMA_EXEMPT_ACTIONS_ = { health: true, adminSystemInfo: true };
  * bản: thường do dán bản gộp vào Code.gs nhưng còn các file .gs cũ (v1) nạp SAU, ghi đè hằng số / hàm mới (bỏ qua OTP, mã băm…).
  * Giữ cùng giá trị với APP.VERSION và package.json (có test kiểm tra).
  */
-var CODE_VERSION_ = '2.0.0';
+var CODE_VERSION_ = '2.1.0';
 
 /** Code đủ và cùng một phiên bản? Không → từ chối MỌI thao tác với hướng dẫn sửa (không chạy tiếp với code trộn lẫn). */
 function assertCodeConsistent_() {
@@ -135,13 +135,37 @@ function getRoutes_() {
     vppPromoteProduct: { scope: 'admin', handler: apiVppPromoteProduct_ },
     vppSkipReview: { scope: 'admin', handler: apiVppSkipReview_ },
     vppSyncStock: { scope: 'admin', handler: apiVppSyncStock_ },
+    // v2.1: phiếu nhập / xuất kho nhiều mặt hàng, cập nhật danh mục + tồn từ Excel
+    vppStockReceipt: { scope: 'admin', handler: apiVppStockReceipt_ },
+    vppStockIssue: { scope: 'admin', handler: apiVppStockIssue_ },
+    vppListVouchers: { scope: 'admin', handler: apiVppListVouchers_ },
+    vppGetVoucher: { scope: 'admin', handler: apiVppGetVoucher_ },
+    vppImportPlan: { scope: 'admin', handler: apiVppImportPlan_ },
+    vppImportApply: { scope: 'admin', handler: apiVppImportApply_ },
     vppListProposals: { scope: 'admin', handler: apiVppListProposals_ },
     vppGetProposal: { scope: 'admin', handler: apiVppGetProposal_ },
     vppReviewProposal: { scope: 'admin', handler: apiVppReviewProposal_ },
     vppRejectProposal: { scope: 'admin', handler: apiVppRejectProposal_ },
     vppSetProposalStatus: { scope: 'admin', handler: apiVppSetProposalStatus_ },
     vppReceiveProposal: { scope: 'admin', handler: apiVppReceiveProposal_ },
-    vppProductDecision: { scope: 'admin', handler: apiVppProductDecision_ }
+    vppProductDecision: { scope: 'admin', handler: apiVppProductDecision_ },
+    // Quản trị — đồng phục
+    dpDashboard: { scope: 'admin', handler: apiDpDashboard_ },
+    dpListStock: { scope: 'admin', handler: apiDpListStock_ },
+    dpSaveModel: { scope: 'admin', handler: apiDpSaveModel_ },
+    dpStockIn: { scope: 'admin', handler: apiDpStockIn_ },
+    dpStockAdjust: { scope: 'admin', handler: apiDpStockAdjust_ },
+    dpStockDispose: { scope: 'admin', handler: apiDpStockDispose_ },
+    dpListMovements: { scope: 'admin', handler: apiDpListMovements_ },
+    dpListNorms: { scope: 'admin', handler: apiDpListNorms_ },
+    dpSaveNorm: { scope: 'admin', handler: apiDpSaveNorm_ },
+    dpSetScopeMapping: { scope: 'admin', handler: apiDpSetScopeMapping_ },
+    dpListEmployees: { scope: 'admin', handler: apiDpListEmployees_ },
+    dpSaveEmployeeProfile: { scope: 'admin', handler: apiDpSaveEmployeeProfile_ },
+    dpEmployeeDetail: { scope: 'admin', handler: apiDpEmployeeDetail_ },
+    dpHandoverContext: { scope: 'admin', handler: apiDpHandoverContext_ },
+    dpListHoldings: { scope: 'admin', handler: apiDpListHoldings_ },
+    dpRecordReturn: { scope: 'admin', handler: apiDpRecordReturn_ }
   };
 }
 
@@ -213,6 +237,12 @@ function apiAdminSystemInfo_() {
     info.spreadsheetName = ss.getName();
     info.spreadsheetUrl = ss.getUrl();
     info.pendingChanges = schemaChangesNeeded_(ss);
+    // Cột định danh trống / bị đổi tên → các dòng bị bỏ qua âm thầm (sự cố VPP_DINH_MUC 10/2026) — hiện để quản trị viên sửa.
+    try {
+      idColumnProblems_(ss).forEach(function (p) { info.pendingChanges.push(p); });
+    } catch (idErr) {
+      logError_('system.id_columns', idErr);
+    }
     info.sheets = Object.keys(HEADERS).map(function (name) {
       var sheet = ss.getSheetByName(name);
       return { name: name, exists: Boolean(sheet), rows: sheet ? Math.max(0, sheet.getLastRow() - 1) : 0 };
@@ -233,6 +263,11 @@ function apiAdminSystemInfo_() {
   var settingsError = '';
   try {
     info.notify = notifyStatus_();
+    var coverageWarning = info.notify.otpMode === 'OFF' ? '' : emailCoverageWarning_(info.notify.otpMode, info.notify.emailCoverage);
+    if (coverageWarning) info.pendingChanges.push(coverageWarning);
+    if (info.notify.otpMode === 'OFF') {
+      info.pendingChanges.push('CAU_HINH.CONFIRM_OTP = OFF — người nhận ký biên bản KHÔNG cần mã xác nhận qua email.');
+    }
   } catch (e) {
     logError_('system.notify_status', e);
     settingsError = 'Không đọc được cấu hình email trong CAU_HINH: ' + e.message;

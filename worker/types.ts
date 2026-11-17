@@ -25,6 +25,11 @@ export interface Env {
    * Không đặt: biên bản đã ký chỉ được bảo vệ bằng mã băm thường.
    */
   RECORD_SEAL_SECRET?: string;
+  /**
+   * handover_id (cách nhau bởi dấu phẩy) của các biên bản ký TRƯỚC khi đặt RECORD_SEAL_SECRET — được phép thiếu niêm phong.
+   * Biên bản khác thiếu niêm phong khi đã có khóa = đã bị xóa niêm phong trên Sheet (MISSING → không khớp).
+   */
+  SEAL_LEGACY_IDS?: string;
 }
 
 export interface RequestContext {

@@ -1,4 +1,5 @@
 import type { ApiEnvelope } from '../../shared/types';
+import { ADMIN_UNAUTHORIZED_EVENT } from '../hooks/reloadEpoch';
 
 /** Lỗi API đã chuẩn hóa để hiển thị thân thiện (không lộ stack trace). */
 export class ApiClientError extends Error {
@@ -71,6 +72,11 @@ export async function apiRequest<T>(path: string, options: RequestOptions = {}):
   }
   if (!response.ok || !envelope.success) {
     const error = envelope.success ? null : envelope.error;
+    // Phiên quản trị hết hạn ở BẤT KỲ đâu (kể cả trong hộp thoại nhập kho, kiểm kê…) → AdminLayout mở hộp thoại đăng nhập lại
+    // phía trên, dữ liệu đang nhập được giữ. /login, /me, /logout tự xử lý 401 của chúng.
+    if (response.status === 401 && /^\/api\/admin\/(?!login\b|me\b|logout\b)/.test(path) && typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent(ADMIN_UNAUTHORIZED_EVENT, { detail: error?.details }));
+    }
     throw new ApiClientError(
       response.status,
       error?.code ?? 'UNKNOWN_ERROR',

@@ -1,0 +1,319 @@
+import { ClipboardCheck, History, PackagePlus, Pencil, Plus, Search, Trash2 } from 'lucide-react';
+import { useMemo, useState } from 'react';
+import { Link } from 'react-router';
+import { UNIFORM_CONDITION_LABELS, UNIFORM_CONDITIONS, type UniformSku, type UniformStockModel } from '../../../../shared/uniform';
+import { formatVnd } from '../../../../shared/vpp';
+import { ExportCsvButton } from '../../../components/ExportCsvButton';
+import { genderLabel, KindBadge } from '../../../components/uniform/UniformBadges';
+import { ModelDialog, SkuStockDialog, UniformStockInDialog } from '../../../components/uniform/UniformDialogs';
+import { Button } from '../../../components/ui/Button';
+import { PageHeader } from '../../../components/ui/PageHeader';
+import { EmptyState, ErrorState, Skeleton } from '../../../components/ui/States';
+import { useToast } from '../../../components/ui/Toast';
+import { Qty } from '../../../components/vpp/Badges';
+import { useAsync } from '../../../hooks/useAsync';
+import { useDocumentTitle } from '../../../hooks/usePageMeta';
+import { uniformStock } from '../../../services/uniformApi';
+import { cn } from '../../../utils/cn';
+import { normalizeVietnamese } from '../../../../shared/text';
+
+type DialogState =
+  | { kind: 'model'; model: UniformStockModel | null }
+  | { kind: 'in'; model: UniformStockModel; size?: string }
+  | { kind: 'adjust' | 'dispose'; model: UniformStockModel; sku: UniformSku }
+  | null;
+
+const ALREADY_RECORDED = 'Thao tác này ĐÃ được ghi ở lần gửi trước (lần đó mất kết nối) — không ghi thêm.';
+
+const CELL_STYLES: Record<string, string> = {
+  IN_STOCK: 'bg-emerald-50 text-emerald-900 ring-emerald-200',
+  LOW_STOCK: 'bg-orange-50 text-orange-900 ring-orange-200',
+  OUT_OF_STOCK: 'bg-red-50 text-red-800 ring-red-200',
+  UNKNOWN: 'bg-amber-50 text-amber-900 ring-amber-200',
+};
+
+/** /admin/dong-phuc/ton-kho — mẫu đồng phục + ma trận tồn theo size (hàng mới / đã qua sử dụng); nhập kho, kiểm kê, thanh lý. */
+export default function UniformStockPage() {
+  useDocumentTitle('Tồn kho đồng phục');
+  const toast = useToast();
+  const [includeInactive, setIncludeInactive] = useState(false);
+  const [query, setQuery] = useState('');
+  const [dialog, setDialog] = useState<DialogState>(null);
+  const list = useAsync((signal) => uniformStock({ includeInactive }, signal), [includeInactive]);
+
+  const models = useMemo(() => {
+    const needle = normalizeVietnamese(query);
+    const all = list.data?.models ?? [];
+    if (!needle) return all;
+    return all.filter((m) => normalizeVietnamese([m.modelName, m.modelCode, m.appliesTo, m.sizes.join(' ')].join(' ')).includes(needle));
+  }, [list.data, query]);
+
+  // Hộp thoại luôn dùng số liệu mới nhất của mẫu (trang vừa tải lại) — cùng mẫu nên dữ liệu đang nhập không bị xóa.
+  const freshModel = (m: UniformStockModel | null) => (m ? (list.data?.models.find((x) => x.modelId === m.modelId) ?? m) : null);
+
+  function done(message: string) {
+    setDialog(null);
+    toast.show(message);
+    list.reload();
+  }
+
+  const totals = useMemo(() => {
+    let onHand = 0;
+    let available = 0;
+    let reserved = 0;
+    for (const m of list.data?.models ?? []) {
+      onHand += m.stock.onHand ?? 0;
+      available += Math.max(0, m.stock.available ?? 0);
+      reserved += m.stock.reserved;
+    }
+    return { onHand, available, reserved };
+  }, [list.data]);
+
+  return (
+    <div className="mx-auto max-w-7xl space-y-5 px-4 py-6">
+      <PageHeader
+        title="Tồn kho & mẫu đồng phục"
+        description="Mỗi ô là một mặt hàng (mẫu × size × tình trạng): khả dụng = tồn − đang giữ chỗ cho phiếu chờ ký. Tồn chỉ đổi qua nhập kho, phiếu bàn giao, trả / thu hồi, kiểm kê, thanh lý — mọi biến động đều có lịch sử."
+        actions={
+          <>
+            <ExportCsvButton dataset="uniform-stock" filters={{ q: query.trim(), includeInactive: includeInactive ? 'true' : '' }} />
+            <Button variant="primary" onClick={() => setDialog({ kind: 'model', model: null })} icon={<Plus className="size-4" aria-hidden="true" />}>
+              Thêm mẫu
+            </Button>
+          </>
+        }
+      />
+
+      <section className="card grid gap-3 p-4 sm:grid-cols-[1fr_auto]" aria-label="Bộ lọc">
+        <div className="relative">
+          <Search className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-stone-400" aria-hidden="true" />
+          <input
+            type="search"
+            className="field-input pl-9"
+            placeholder="Tìm tên mẫu, mã, đối tượng, size…"
+            aria-label="Tìm mẫu đồng phục"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+          />
+        </div>
+        <label className="flex items-center gap-2 text-sm text-stone-700">
+          <input type="checkbox" className="size-4 accent-brand-700" checked={includeInactive} onChange={(e) => setIncludeInactive(e.target.checked)} />
+          Hiện mẫu ngừng dùng
+        </label>
+      </section>
+
+      {list.data && list.data.models.length > 0 && (
+        <p className="text-sm text-stone-600">
+          Tổng tồn: <strong className="tabular-nums">{totals.onHand.toLocaleString('vi-VN')}</strong> · Đang giữ chỗ: {totals.reserved} · Khả dụng:{' '}
+          <strong className="tabular-nums text-brand-800">{totals.available.toLocaleString('vi-VN')}</strong>
+        </p>
+      )}
+
+      {list.status === 'loading' && !list.data && (
+        <div className="space-y-3">
+          {Array.from({ length: 3 }, (_, i) => (
+            <Skeleton key={i} className="h-36 w-full" />
+          ))}
+        </div>
+      )}
+      {list.status === 'error' && !list.data && <ErrorState title="Không tải được tồn kho đồng phục." error={list.error} onRetry={list.reload} />}
+      {list.data && models.length === 0 && (
+        <div className="card">
+          <EmptyState
+            title={list.data.models.length === 0 ? 'Chưa có mẫu đồng phục nào.' : 'Không có mẫu phù hợp.'}
+            description={
+              list.data.models.length === 0
+                ? 'Chủ Google Sheet chạy menu “DTA Handover → Khởi tạo danh mục đồng phục” (7 mẫu theo DS đồng phục của HCNS), hoặc bấm “Thêm mẫu”.'
+                : 'Thử từ khóa khác.'
+            }
+          />
+        </div>
+      )}
+
+      <div className="space-y-4">
+        {models.map((m) => (
+          <ModelCard key={m.modelId} model={m} onOpen={setDialog} />
+        ))}
+      </div>
+
+      <ModelDialog
+        open={dialog?.kind === 'model'}
+        model={dialog?.kind === 'model' ? freshModel(dialog.model) : null}
+        onClose={() => setDialog(null)}
+        onSaved={(model, duplicate) =>
+          done(
+            duplicate
+              ? `Mẫu ${model.modelCode} ĐÃ được thêm ở lần gửi trước — không tạo thêm.`
+              : dialog?.kind === 'model' && dialog.model
+                ? `Đã lưu mẫu ${model.modelName}.`
+                : `Đã thêm mẫu ${model.modelCode} – ${model.modelName}.`,
+          )
+        }
+        onStale={list.reload}
+      />
+      <UniformStockInDialog
+        open={dialog?.kind === 'in'}
+        model={dialog?.kind === 'in' ? freshModel(dialog.model) : null}
+        initialSize={dialog?.kind === 'in' ? dialog.size : undefined}
+        onClose={() => setDialog(null)}
+        onDone={(sku, duplicate) =>
+          done(duplicate ? `${ALREADY_RECORDED} Tồn hiện tại: ${sku.stock.onHand ?? 'chưa rõ'}.` : `Đã nhập kho size ${sku.size}. Tồn mới: ${sku.stock.onHand ?? 'chưa rõ'}.`)
+        }
+        onStale={list.reload}
+      />
+      <SkuStockDialog
+        open={dialog?.kind === 'adjust' || dialog?.kind === 'dispose'}
+        mode={dialog?.kind === 'dispose' ? 'dispose' : 'adjust'}
+        model={dialog?.kind === 'adjust' || dialog?.kind === 'dispose' ? freshModel(dialog.model) : null}
+        sku={
+          dialog?.kind === 'adjust' || dialog?.kind === 'dispose'
+            ? (freshModel(dialog.model)?.skus.find((s) => s.productId === dialog.sku.productId) ?? dialog.sku)
+            : null
+        }
+        onClose={() => setDialog(null)}
+        onDone={(sku, duplicate) =>
+          done(duplicate ? `${ALREADY_RECORDED} Tồn hiện tại: ${sku.stock.onHand ?? 'chưa rõ'}.` : `Đã cập nhật tồn size ${sku.size}: ${sku.stock.onHand ?? 'chưa rõ'}.`)
+        }
+        onStale={list.reload}
+      />
+    </div>
+  );
+}
+
+function ModelCard({ model, onOpen }: { model: UniformStockModel; onOpen: (state: DialogState) => void }) {
+  const hasUsed = model.skus.some((s) => s.condition === 'USED');
+  const rows = UNIFORM_CONDITIONS.filter((c) => c === 'NEW' || hasUsed);
+  const extraSizes = [...new Set(model.skus.map((s) => s.size))].filter((s) => !model.sizes.includes(s));
+  const sizes = [...model.sizes, ...extraSizes];
+  return (
+    <section className={cn('card p-4 sm:p-5', !model.active && 'opacity-60')} aria-labelledby={`dp-model-${model.modelId}`}>
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="min-w-0">
+          <h2 id={`dp-model-${model.modelId}`} className="flex flex-wrap items-center gap-2 font-semibold text-stone-900">
+            {model.modelName}
+            <span className="font-mono text-xs font-normal text-stone-500">{model.modelCode}</span>
+            <KindBadge kind={model.kind} />
+            {!model.active && <span className="rounded-full bg-stone-200 px-2 py-0.5 text-xs font-semibold text-stone-700">Ngừng dùng</span>}
+          </h2>
+          <p className="mt-0.5 text-xs text-stone-600">
+            {genderLabel(model.gender)} · {model.unit}
+            {model.referencePrice !== null ? ` · ${formatVnd(model.referencePrice)}` : ''}
+            {model.countsTowardQuota ? ' · tính tiêu chuẩn năm' : ' · không tính tiêu chuẩn'}
+            {model.minimumStock ? ` · tối thiểu ${model.minimumStock}/size` : ''}
+          </p>
+          {model.appliesTo && <p className="mt-0.5 text-xs text-stone-500">Đối tượng: {model.appliesTo}</p>}
+        </div>
+        <div className="flex flex-wrap gap-1.5">
+          {model.active && (
+            <Button size="sm" variant="secondary" onClick={() => onOpen({ kind: 'in', model })} icon={<PackagePlus className="size-4" aria-hidden="true" />}>
+              Nhập kho
+            </Button>
+          )}
+          <Button size="sm" variant="ghost" onClick={() => onOpen({ kind: 'model', model })} icon={<Pencil className="size-4" aria-hidden="true" />}>
+            Sửa mẫu
+          </Button>
+          <Link
+            to={`/admin/dong-phuc/lich-su?modelId=${model.modelId}`}
+            className="inline-flex items-center gap-1 rounded-lg px-2 py-1.5 text-sm font-medium text-stone-600 hover:bg-stone-100"
+          >
+            <History className="size-4" aria-hidden="true" />
+            Lịch sử
+          </Link>
+        </div>
+      </div>
+
+      <div className="mt-3 overflow-x-auto">
+        <table className="w-full min-w-max border-separate border-spacing-1 text-sm">
+          <thead>
+            <tr>
+              <th scope="col" className="px-2 py-1 text-left text-xs font-semibold text-stone-500">
+                Tình trạng
+              </th>
+              {sizes.map((s) => (
+                <th key={s} scope="col" className="px-2 py-1 text-center text-xs font-bold text-stone-700">
+                  {s}
+                </th>
+              ))}
+              <th scope="col" className="px-2 py-1 text-right text-xs font-semibold text-stone-500">
+                Cộng
+              </th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((condition) => {
+              const rowSkus = model.skus.filter((s) => s.condition === condition);
+              const sum = rowSkus.reduce((acc, s) => acc + Math.max(0, s.stock.available ?? 0), 0);
+              return (
+                <tr key={condition}>
+                  <th scope="row" className="px-2 py-1 text-left text-xs font-medium whitespace-nowrap text-stone-600">
+                    {UNIFORM_CONDITION_LABELS[condition]}
+                  </th>
+                  {sizes.map((size) => {
+                    const sku = rowSkus.find((s) => s.size === size);
+                    if (!sku) {
+                      return (
+                        <td key={size} className="rounded-md bg-stone-50 px-2 py-1.5 text-center text-xs text-stone-400">
+                          —
+                        </td>
+                      );
+                    }
+                    return (
+                      <td key={size} className={cn('rounded-md px-2 py-1 text-center ring-1 ring-inset', CELL_STYLES[sku.stock.status], !sku.active && 'opacity-60')}>
+                        <SkuCell model={model} sku={sku} onOpen={onOpen} />
+                      </td>
+                    );
+                  })}
+                  <td className="px-2 py-1 text-right font-semibold tabular-nums">{sum.toLocaleString('vi-VN')}</td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+      <p className="mt-1 text-xs text-stone-500">Số lớn = khả dụng · “giữ n” = đang giữ chỗ cho phiếu chờ ký. Bấm vào ô để kiểm kê / thanh lý.</p>
+    </section>
+  );
+}
+
+function SkuCell({ model, sku, onOpen }: { model: UniformStockModel; sku: UniformSku; onOpen: (state: DialogState) => void }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="relative">
+      <button
+        type="button"
+        className="w-full rounded px-1 py-0.5 hover:bg-white/60 focus-visible:outline-2 focus-visible:outline-brand-600"
+        aria-expanded={open}
+        aria-label={`${sku.size} ${UNIFORM_CONDITION_LABELS[sku.condition]}: khả dụng ${sku.stock.available ?? 'chưa rõ'}, tồn ${sku.stock.onHand ?? 'chưa rõ'}, đang giữ ${sku.stock.reserved}`}
+        onClick={() => setOpen((v) => !v)}
+      >
+        <span className="block text-base font-bold tabular-nums">
+          <Qty value={sku.stock.available} />
+        </span>
+        {sku.stock.reserved > 0 && <span className="block text-[11px] leading-tight">giữ {sku.stock.reserved}</span>}
+      </button>
+      {open && (
+        <div className="absolute top-full left-1/2 z-10 mt-1 w-40 -translate-x-1/2 space-y-1 rounded-lg border border-stone-200 bg-white p-2 text-left text-xs text-stone-700 shadow-lg">
+          <p>
+            Tồn: <Qty value={sku.stock.onHand} /> · giữ {sku.stock.reserved}
+          </p>
+          <p className="font-mono text-[11px] text-stone-500">{sku.skuCode}</p>
+          {model.active && sku.condition === 'NEW' && (
+            <button type="button" className="flex w-full items-center gap-1 rounded px-1.5 py-1 hover:bg-stone-100" onClick={() => onOpen({ kind: 'in', model, size: sku.size })}>
+              <PackagePlus className="size-3.5" aria-hidden="true" /> Nhập thêm
+            </button>
+          )}
+          <button type="button" className="flex w-full items-center gap-1 rounded px-1.5 py-1 hover:bg-stone-100" onClick={() => onOpen({ kind: 'adjust', model, sku })}>
+            <ClipboardCheck className="size-3.5" aria-hidden="true" /> Kiểm kê
+          </button>
+          <button
+            type="button"
+            className="flex w-full items-center gap-1 rounded px-1.5 py-1 text-red-700 hover:bg-red-50"
+            onClick={() => onOpen({ kind: 'dispose', model, sku })}
+          >
+            <Trash2 className="size-3.5" aria-hidden="true" /> Thanh lý
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}

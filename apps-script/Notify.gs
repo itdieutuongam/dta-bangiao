@@ -386,8 +386,38 @@ function notifyStatus_() {
     recipients: notifyRecipients_().length,
     otpMode: otpMode_(),
     notify: channelView_(status.notify),
-    otp: channelView_(status.otp)
+    otp: channelView_(status.otp),
+    emailCoverage: emailCoverage_()
   };
+}
+
+/**
+ * Độ phủ email của nhân viên ĐANG LÀM: mã xác nhận khi ký chỉ bảo vệ người có email hợp lệ trong NHAN_VIEN. CONFIRM_OTP = EMAIL mà
+ * người nhận chưa có email → ký KHÔNG cần mã (người cầm link — kể cả người lập phiếu — ký thay được). null khi không đọc được.
+ */
+function emailCoverage_() {
+  try {
+    var active = getEmployees_().filter(function (e) { return e.status === 'ACTIVE'; });
+    return {
+      active: active.length,
+      withEmail: active.filter(function (e) { return isEmail_(e.email); }).length
+    };
+  } catch (e) {
+    logError_('notify.email_coverage', e);
+    return null;
+  }
+}
+
+/** Cảnh báo (tiếng Việt) khi còn nhân viên đang làm chưa có email mà chế độ ký vẫn cho ký không cần mã. '' = ổn. */
+function emailCoverageWarning_(mode, coverage) {
+  if (!coverage || !coverage.active || coverage.withEmail >= coverage.active) return '';
+  var missing = coverage.active - coverage.withEmail;
+  if (mode === 'REQUIRED') {
+    return missing + '/' + coverage.active + ' nhân viên đang làm chưa có email trong NHAN_VIEN — CONFIRM_OTP = REQUIRED nên họ CHƯA ký ' +
+      'được biên bản. Bổ sung email rồi bấm "Làm mới dữ liệu".';
+  }
+  return missing + '/' + coverage.active + ' nhân viên đang làm chưa có email trong NHAN_VIEN — họ ký biên bản KHÔNG cần mã xác nhận ' +
+    '(người cầm link ký thay được). Bổ sung email công ty cho tất cả, sau đó đặt CAU_HINH.CONFIRM_OTP = REQUIRED.';
 }
 
 /**

@@ -271,7 +271,22 @@ describe('Email thông báo cho quản trị viên (CAU_HINH.NOTIFY_EMAILS)', ()
     expect(env.rt.mail).toHaveLength(0);
     expect(env.admin('adminOverview').data.notify).toEqual({
       recipients: 0, otpMode: 'EMAIL', notify: { lastOkAt: '', lastError: null }, otp: { lastOkAt: '', lastError: null },
+      emailCoverage: { active: 7, withEmail: 7 },
     });
+  });
+
+  it('[GAS-2] độ phủ email: nhân viên đang làm chưa có email → cảnh báo ở Cài đặt (ký không cần mã xác nhận)', () => {
+    const env = setupGas();
+    const sheet = env.rt.sheet('NHAN_VIEN');
+    const headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0] as string[];
+    const emailCol = headers.indexOf('email') + 1;
+    sheet.getRange(2, emailCol).setValue('');
+    sheet.getRange(3, emailCol).setValue('khong-phai-email');
+    env.rt.run('invalidateCaches_');
+    const info = env.admin('adminSystemInfo').data;
+    expect(info.notify.emailCoverage).toEqual({ active: 7, withEmail: 5 });
+    expect(info.pendingChanges.join('\n')).toContain('2/7 nhân viên đang làm chưa có email');
+    expect(env.rt.run('checkSetup')).toContain('5/7 nhân viên đang làm có email');
   });
 
   it('yêu cầu chỉnh sửa → 1 email tới danh sách (lọc trùng / sai), link theo APP_URL, nội dung đã escape HTML', () => {
@@ -358,7 +373,7 @@ describe('Huy hiệu menu & xuất dữ liệu', () => {
     const h = createHandover(env);
     createHandover(env);
     env.call('requestRevision', { tokenHash: h.token.hash, contentHash: contentHashOf(env, h.token.hash), reason: 'Sai serial' });
-    expect(env.admin('adminBadges').data).toEqual({ revisionRequested: 1, submittedProposals: 0 });
+    expect(env.admin('adminBadges').data).toEqual({ revisionRequested: 1, submittedProposals: 0, overdueUniformLoans: 0 });
     expect(env.call('adminBadges').error?.code).toBe('FORBIDDEN');
   });
 

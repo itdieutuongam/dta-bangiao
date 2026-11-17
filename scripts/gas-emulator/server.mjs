@@ -51,6 +51,7 @@ function sendJson(res, status, body) {
 /**
  * Khởi động server giả lập.
  * vpp: nạp định mức + tồn đầu kỳ văn phòng phẩm (seedOfficeSupplyNorms / seedInitialOfficeSupplyStock) như chủ Sheet chạy từ menu.
+ * uniform: nạp danh mục mẫu đồng phục (seedUniformCatalog) + tồn kho / size mẫu cho nhân viên DEMO- (seedUniformDemo_).
  * settings: ghi đè khóa CAU_HINH sau khi setupDatabase (ví dụ { APP_URL: 'http://127.0.0.1:8787', NOTIFY_EMAILS: '…' }).
  * onMail: gọi mỗi khi script "gửi" một email (thư nằm trong runtime.mail, không gửi thật).
  * @param {{ port?: number, host?: string, secret: string, seed?: boolean, vpp?: boolean, quiet?: boolean, redirect?: boolean,
@@ -68,6 +69,11 @@ export async function startGasEmulator(options) {
   if (options.vpp) {
     runtime.run('seedOfficeSupplyNorms');
     runtime.run('seedInitialOfficeSupplyStock');
+  }
+  if (options.uniform) {
+    // Danh mục mẫu đồng phục (như chủ Sheet chạy menu) + tồn kho / size mẫu cho nhân viên DEMO- (chỉ chạy thử).
+    runtime.run('seedUniformCatalog');
+    runtime.run('seedUniformDemo_');
   }
   for (const [key, value] of Object.entries(options.settings ?? {})) {
     runtime.run('upsertSetting_', key, value, 'Giá trị chạy thử cục bộ (emulator)');

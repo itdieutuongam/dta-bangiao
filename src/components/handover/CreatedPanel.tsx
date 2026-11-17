@@ -1,4 +1,4 @@
-import { CircleCheck, Eye, FilePlus2, FileSearch, Mail, ShieldCheck, TriangleAlert } from 'lucide-react';
+import { CircleCheck, Eye, FilePlus2, FileSearch, Mail, Share2, ShieldCheck, TriangleAlert } from 'lucide-react';
 import { useEffect, useRef } from 'react';
 import { HANDOVER_TYPE_LABELS } from '../../../shared/constants';
 import type { CreateHandoverResult } from '../../../shared/types';
@@ -59,6 +59,21 @@ export function CreatedPanel({ result, onCreateNew }: { result: CreateHandoverRe
         `Chào ${receiver.name},\n\nVui lòng mở link sau để kiểm tra nội dung và ký xác nhận biên bản bàn giao ${result.code}:\n${result.link}\n\nTrân trọng.`,
       )}`
     : null;
+
+  // Điện thoại / máy có Web Share: gửi link thẳng qua Zalo, Messenger… (khung chia sẻ của hệ điều hành).
+  const canShare = typeof navigator !== 'undefined' && typeof navigator.share === 'function';
+  async function share() {
+    if (!result.link) return;
+    try {
+      await navigator.share({
+        title: `Biên bản bàn giao ${result.code}`,
+        text: `Chào ${receiver.name}, vui lòng mở link để kiểm tra và ký xác nhận biên bản bàn giao ${result.code}:`,
+        url: result.link,
+      });
+    } catch {
+      // Người dùng đóng khung chia sẻ — không cần báo lỗi; vẫn còn nút sao chép link.
+    }
+  }
 
   return (
     <section className="card overflow-hidden" aria-labelledby="created-title">
@@ -151,6 +166,11 @@ export function CreatedPanel({ result, onCreateNew }: { result: CreateHandoverRe
               <Mail className="size-4" aria-hidden="true" />
               GỬI QUA EMAIL
             </a>
+          )}
+          {result.link && canShare && (
+            <Button variant="secondary" onClick={share} icon={<Share2 className="size-4" aria-hidden="true" />}>
+              CHIA SẺ (ZALO…)
+            </Button>
           )}
           <Button onClick={onCreateNew} icon={<FilePlus2 className="size-4" aria-hidden="true" />} className="sm:ml-auto">
             TẠO PHIẾU MỚI

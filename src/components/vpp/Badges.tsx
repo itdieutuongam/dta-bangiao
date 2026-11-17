@@ -56,6 +56,7 @@ const MOVEMENT_STYLES: Record<MovementType, string> = {
   RELEASE: 'bg-sky-50 text-sky-800 ring-sky-200',
   OUT: 'bg-red-50 text-red-800 ring-red-200',
   ADJUSTMENT: 'bg-violet-50 text-violet-800 ring-violet-200',
+  ISSUE: 'bg-rose-50 text-rose-800 ring-rose-200',
 };
 
 export function MovementTypeBadge({ type }: { type: MovementType }) {

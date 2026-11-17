@@ -80,8 +80,11 @@ describe('Apps Script – bảo mật request', () => {
     const { payload } = createPayload();
     const res = env.admin('adminCreateHandover', payload);
     expect(res.error?.code).toBe('NOT_CONFIGURED');
-    expect(res.error?.message).toMatch(/Nâng cấp module Văn phòng phẩm/);
-    expect(env.admin('adminSystemInfo').data).toMatchObject({ schemaReady: false, requiredSchemaVersion: 2 });
+    expect(res.error?.message).toMatch(/Nâng cấp module Đồng phục \(v3\)/);
+    expect(env.admin('adminSystemInfo').data).toMatchObject({ schemaReady: false, requiredSchemaVersion: 3 });
+    // Cơ sở dữ liệu v2 (đã có VPP, chưa có đồng phục) cũng bị chặn cho tới khi nâng cấp v3 — không ghi nửa vời.
+    env.rt.properties.SCHEMA_VERSION = '2';
+    expect(env.admin('adminCreateHandover', createPayload().payload).error?.code).toBe('NOT_CONFIGURED');
   });
 });
 
@@ -100,9 +103,11 @@ describe('Apps Script – setupDatabase / upgradeOfficeSupplyModule', () => {
     env.rt.run('setupDatabase');
     env.rt.run('setupDatabase');
     for (let i = 0; i < 10; i++) env.rt.run('upgradeOfficeSupplyModule');
-    expect(env.rt.sheet('LOAI_BAN_GIAO').toObjects()).toHaveLength(8);
-    // 11 khóa mặc định: 8 hiển thị / định mức + CONFIRM_OTP, NOTIFY_EMAILS, APP_URL (email)
-    expect(env.rt.sheet('CAU_HINH').toObjects()).toHaveLength(11);
+    for (let i = 0; i < 3; i++) env.rt.run('upgradeUniformModule');
+    // 9 loại mặc định: 8 loại của v2 + "Đồng phục" (v3)
+    expect(env.rt.sheet('LOAI_BAN_GIAO').toObjects()).toHaveLength(9);
+    // 13 khóa mặc định: 8 hiển thị / định mức + CONFIRM_OTP, NOTIFY_EMAILS, APP_URL (email) + PDF_TITLE_DP, DP_TIEU_CHUAN_NAM (v3)
+    expect(env.rt.sheet('CAU_HINH').toObjects()).toHaveLength(13);
     expect(env.rt.sheet('CAU_HINH').toObjects().map((r: { key: string }) => r.key)).toEqual(
       expect.arrayContaining(['CONFIRM_OTP', 'NOTIFY_EMAILS', 'APP_URL']),
     );
@@ -228,8 +233,8 @@ describe('Apps Script – nhân viên & loại bàn giao (chỉ admin)', () => {
     sheet.getRange(2, 1, rows.length, 7).setNumberFormat('@').setValues(rows);
     env.admin('refreshCache');
     expect(env.admin('adminListEmployees').data.employees).toHaveLength(1500);
-    expect(env.rt.cache.get('employees:v1:n')).not.toBeNull();
-    expect(Number(env.rt.cache.get('employees:v1:n'))).toBeGreaterThan(1);
+    expect(env.rt.cache.get('employees:v2:n')).not.toBeNull();
+    expect(Number(env.rt.cache.get('employees:v2:n'))).toBeGreaterThan(1);
     expect(env.admin('adminListEmployees').data.employees).toHaveLength(1500); // đọc từ cache
   });
 
@@ -782,7 +787,8 @@ describe('Apps Script – chạy từ menu DTA Handover trong Google Sheet', () 
 
   it('Khóa sheet hệ thống: chỉ chủ sở hữu script sửa được BAN_GIAO / CHI_TIET / LICH_SU / kho', () => {
     const env = setupGas();
-    expect(env.rt.run('protectSystemSheets')).toMatch(/Đã khóa 7 sheet/);
+    // 7 sheet của v2 + phiếu nhập / xuất kho VPP + 4 sheet đồng phục chỉ hệ thống ghi (DP_BIEN_THE, DP_TON_KHO, DP_BIEN_DONG_KHO, DP_THU_HOI)
+    expect(env.rt.run('protectSystemSheets')).toMatch(/Đã khóa 12 sheet/);
     const protection = env.rt.sheet('BAN_GIAO').getProtections()[0];
     expect(protection.getEditors().map((e: any) => e.getEmail())).toEqual(['owner@example.com']);
     expect(protection.canDomainEdit()).toBe(false);

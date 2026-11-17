@@ -1,4 +1,4 @@
-import { ClipboardCheck, History, PackagePlus, Pencil, Plus, Search } from 'lucide-react';
+import { ClipboardCheck, FileSpreadsheet, History, PackageMinus, PackagePlus, Pencil, Plus, Search } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { Link, useSearchParams } from 'react-router';
 import {
@@ -10,7 +10,7 @@ import {
   type VppProduct,
 } from '../../../../shared/vpp';
 import { ExportCsvButton } from '../../../components/ExportCsvButton';
-import { Button } from '../../../components/ui/Button';
+import { Button, ButtonLink } from '../../../components/ui/Button';
 import { PageHeader } from '../../../components/ui/PageHeader';
 import { EmptyState, ErrorState, Skeleton } from '../../../components/ui/States';
 import { useToast } from '../../../components/ui/Toast';
@@ -83,6 +83,15 @@ export default function VppStockPage() {
         actions={
           <div className="flex flex-wrap items-center gap-2">
             <ExportCsvButton dataset="stock" filters={{ q: query.trim(), stockStatus, catalogStatus, includeArchived: includeArchived ? 'true' : '' }} />
+            <ButtonLink to="/admin/vpp/nhap-excel" icon={<FileSpreadsheet className="size-4" aria-hidden="true" />}>
+              Cập nhật từ Excel
+            </ButtonLink>
+            <ButtonLink to="/admin/vpp/nhap-kho" icon={<PackagePlus className="size-4" aria-hidden="true" />}>
+              Nhập kho
+            </ButtonLink>
+            <ButtonLink to="/admin/vpp/xuat-kho" icon={<PackageMinus className="size-4" aria-hidden="true" />}>
+              Xuất kho
+            </ButtonLink>
             <Button variant="primary" onClick={() => setDialog({ kind: 'product', product: null })} icon={<Plus className="size-4" aria-hidden="true" />}>
               Thêm sản phẩm
             </Button>

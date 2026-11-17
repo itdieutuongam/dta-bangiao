@@ -239,7 +239,7 @@ function checkSetup() {
   var schema = parseInt(getProp_(PROP.SCHEMA_VERSION), 10) || 0;
   if (schema < APP.SCHEMA_VERSION) {
     ok = false;
-    lines.push('✗ Cấu trúc dữ liệu v' + schema + ' — cần chạy "Nâng cấp module Văn phòng phẩm" (upgradeOfficeSupplyModule).');
+    lines.push('✗ Cấu trúc dữ liệu v' + schema + ' — cần chạy "Nâng cấp module Đồng phục (v3)" (upgradeUniformModule).');
   } else {
     lines.push('✓ Cấu trúc dữ liệu v' + schema + ' (code v' + APP.VERSION + ')');
   }
@@ -271,6 +271,15 @@ function checkSetup() {
     var employees = loadEmployeesFromSheet_();
     var active = employees.filter(function (e) { return e.status === 'ACTIVE'; }).length;
     lines.push('• Nhân viên: ' + employees.length + ' (ACTIVE: ' + active + ')');
+    // Mã xác nhận khi ký chỉ bảo vệ người có email: thiếu email = ký không cần mã (người cầm link ký thay được).
+    var mode = otpMode_();
+    var coverage = {
+      active: active,
+      withEmail: employees.filter(function (e) { return e.status === 'ACTIVE' && isEmail_(e.email); }).length
+    };
+    lines.push('• Mã xác nhận khi ký (CONFIRM_OTP = ' + mode + '): ' + coverage.withEmail + '/' + coverage.active + ' nhân viên đang làm có email');
+    var coverageWarning = mode === 'OFF' ? 'CONFIRM_OTP = OFF — người nhận ký không cần mã xác nhận.' : emailCoverageWarning_(mode, coverage);
+    if (coverageWarning) lines.push('⚠ ' + coverageWarning);
     var invalidStatus = readTable_(SHEETS.EMPLOYEES).rows.filter(function (r) {
       var s = String(r.status || '').trim().toUpperCase();
       return s !== '' && s !== 'ACTIVE' && s !== 'INACTIVE';
@@ -282,6 +291,16 @@ function checkSetup() {
       lines.push('• Văn phòng phẩm: ' + vppProducts.filter(function (p) { return p.catalogStatus === CATALOG_STATUS.MASTER; }).length +
         ' sản phẩm danh mục, ' + loadNorms_().length + ' định mức, ' + vppReviewCounts_().total + ' mục cần kiểm tra');
     }
+    if (ss.getSheetByName(SHEETS.DP_MODELS) && ss.getSheetByName(SHEETS.DP_NORMS)) {
+      var missingSize = employees.filter(function (e) { return e.status === 'ACTIVE' && !e.uniformSize; }).length;
+      lines.push('• Đồng phục: ' + dpLoadModels_().filter(function (m) { return m.active; }).length + ' mẫu, ' + dpLoadNorms_().length +
+        ' tiêu chuẩn riêng (mặc định ' + dpDefaultYearlyQuota_() + '/năm), ' + missingSize + ' nhân viên chưa có size');
+    }
+    // Cột định danh trống / bị đổi tên → các dòng bị bỏ qua âm thầm (sự cố VPP_DINH_MUC 10/2026).
+    idColumnProblems_(ss).forEach(function (p) {
+      ok = false;
+      lines.push('✗ ' + p);
+    });
   } catch (e) {
     ok = false;
     lines.push('✗ Spreadsheet: ' + e.message);
@@ -422,7 +441,7 @@ function protectSystemSheets() {
   var me = Session.getEffectiveUser();
   var names = [
     SHEETS.HANDOVERS, SHEETS.ITEMS, SHEETS.HISTORY, SHEETS.VPP_STOCK, SHEETS.VPP_MOVEMENTS, SHEETS.VPP_PROPOSALS,
-    SHEETS.VPP_PROPOSAL_ITEMS
+    SHEETS.VPP_PROPOSAL_ITEMS, SHEETS.VPP_VOUCHERS, SHEETS.DP_SKUS, SHEETS.DP_STOCK, SHEETS.DP_MOVEMENTS, SHEETS.DP_RETURNS
   ];
   var done = [];
   names.forEach(function (name) {
@@ -450,12 +469,14 @@ function onOpen() {
     SpreadsheetApp.getUi()
       .createMenu('DTA Handover')
       .addItem('Thiết lập / cập nhật database', 'setupDatabase')
-      .addItem('Nâng cấp module Văn phòng phẩm (v2)', 'upgradeOfficeSupplyModule')
+      .addItem('Nâng cấp module Đồng phục (v3)', 'upgradeUniformModule')
       .addItem('Kiểm tra cấu hình', 'checkSetup')
       .addItem('Nhập / đổi khóa kết nối (BACKEND_SHARED_SECRET)', 'setSharedSecret')
+      .addItem('Sửa cột định danh bị đổi tên', 'repairIdColumns')
       .addSeparator()
       .addItem('Khởi tạo định mức VPP (từ bản định mức)', 'seedOfficeSupplyNorms')
       .addItem('Nhập tồn đầu kỳ VPP (chạy 1 lần)', 'seedInitialOfficeSupplyStock')
+      .addItem('Khởi tạo danh mục đồng phục', 'seedUniformCatalog')
       .addSeparator()
       .addItem('Làm mới cache (sau khi sửa nhân viên)', 'refreshCaches')
       .addItem('Thêm nhân viên mẫu (DEMO-)', 'seedSampleEmployees')
@@ -473,17 +494,62 @@ function onOpen() {
   }
 }
 
-/** Sửa trực tiếp NHAN_VIEN / LOAI_BAN_GIAO / CAU_HINH / danh mục VPP → xóa cache để Web App thấy dữ liệu mới ngay. */
+/**
+ * Sửa trực tiếp NHAN_VIEN / LOAI_BAN_GIAO / CAU_HINH / danh mục VPP / đồng phục → xóa cache để Web App thấy dữ liệu mới ngay.
+ * Sửa dòng tiêu đề (dòng 1) của sheet hệ thống → guardHeaderEdit_.
+ */
 function onEdit(e) {
+  try {
+    guardHeaderEdit_(e);
+  } catch (err) {
+    logError_('onEdit.header_guard', err);
+  }
   try {
     var name = e && e.range ? e.range.getSheet().getName() : '';
     if (name === SHEETS.EMPLOYEES || name === SHEETS.CATEGORIES || name === SHEETS.SETTINGS || name === SHEETS.VPP_PRODUCTS ||
-        name === SHEETS.VPP_NORMS) {
+        name === SHEETS.VPP_NORMS || name === SHEETS.DP_MODELS || name === SHEETS.DP_NORMS) {
       invalidateCaches_();
     }
   } catch (err) {
     // Simple trigger không được ném lỗi ra giao diện người đang sửa Sheet → ghi log (Executions) để theo dõi.
     logError_('onEdit.invalidate_cache', err);
+  }
+}
+
+/**
+ * Dòng tiêu đề là "chìa khóa" để code tìm cột: gõ đè một ô tiêu đề (sự cố VPP_DINH_MUC "norm_id" → "m", 10/2026) làm hệ thống
+ * bỏ qua cả cột. Sửa MỘT ô tiêu đề hệ thống → tự đặt lại tên cũ và báo; dán / xóa nhiều ô một lúc (không biết giá trị cũ) → kiểm
+ * tra lại tiêu đề, báo cột hệ thống bị mất, bỏ kết quả "cấu trúc đủ" đã nhớ để Web App dừng ghi (NOT_CONFIGURED) thay vì bỏ qua cột.
+ */
+function guardHeaderEdit_(e) {
+  var range = e && e.range;
+  if (!range || range.getRow() !== 1) return;
+  var sheet = range.getSheet();
+  var name = sheet.getName();
+  var expected = HEADERS[name];
+  if (!expected) return;
+  var single = range.getNumRows() === 1 && range.getNumColumns() === 1;
+  var old = single && e.oldValue !== undefined && e.oldValue !== null ? String(e.oldValue).trim() : '';
+  if (old && expected.indexOf(old) >= 0 && String(range.getValue()).trim() !== old) {
+    range.setValue(old);
+    resetHeaderCache_();
+    notifyUser_('Không đổi được tiêu đề cột hệ thống "' + old + '" (sheet ' + name + ') — đã đặt lại. Muốn thêm cột riêng, hãy thêm ở ' +
+      'cuối sheet với tên khác.');
+    logInfo_('onEdit.header_restored', { sheet: name, header: old });
+    return;
+  }
+  resetHeaderCache_();
+  try {
+    CacheService.getScriptCache().remove('schema-ok:' + schemaFingerprint_());
+  } catch (cacheErr) {
+    logError_('onEdit.schema_cache', cacheErr);
+  }
+  var headers = getHeaders_(sheet);
+  var missing = expected.filter(function (h) { return headers.indexOf(h) < 0; });
+  if (missing.length) {
+    notifyUser_('Sheet ' + name + ' mất tiêu đề cột hệ thống: ' + missing.join(', ') + ' — bấm Hoàn tác (Ctrl+Z) ngay; nếu không, ' +
+      'hệ thống sẽ dừng ghi dữ liệu vào sheet này.');
+    logInfo_('onEdit.header_missing', { sheet: name, missing: missing });
   }
 }
 

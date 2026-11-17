@@ -16,11 +16,13 @@ Chỉ Cloudflare Worker gọi API này (request ký HMAC-SHA256). Hướng dẫn
 | `Notify.gs` | Email qua MailApp: mã xác nhận (OTP) khi ký — gửi, kiểm tra, giới hạn; thông báo cho quản trị viên (`NOTIFY_EMAILS`), `NOTIFY_STATUS`, email tổng hợp hằng ngày |
 | `Drive.gs` | Thư mục `DTA_HANDOVER/<loại>/YYYY/MM`, lưu chữ ký PNG, đọc file (chỉ trong thư mục hệ thống, đúng định dạng), lưu trữ PDF cũ, Advanced Drive (tùy chọn) |
 | `Pdf.gs` | Dựng HTML phiếu (kể cả phiếu văn phòng phẩm; in mọi trường có dữ liệu) → PDF → lưu Drive; từ chối khi toàn vẹn MISMATCH (nội dung, toàn biên bản hoặc niêm phong) |
-| `Export.gs` | Dựng CSV cho “Xuất CSV” (phiếu, tồn kho, lịch sử kho, đề xuất): chống chèn công thức, ngày giờ Việt Nam, CRLF — Worker chỉ chuyển thẳng tệp |
+| `Export.gs` | Dựng CSV cho “Xuất CSV” (phiếu, tồn kho, lịch sử kho, đề xuất, *v2.1:* tồn / sổ biến động / sổ cấp phát / mượn trả đồng phục): chống chèn công thức, ngày giờ Việt Nam, CRLF — Worker chỉ chuyển thẳng tệp |
 | `Setup.gs` | Hàm chạy thủ công + menu + `onEdit` + khóa sheet hệ thống |
 | `Vpp.gs` | Kho văn phòng phẩm: tồn / giữ chỗ / xuất kho (đồng bộ hội tụ; sổ biến động ghi trước, tự đồng bộ sau lỗi giữa chừng), định mức, sản phẩm, nhập kho, kiểm kê, lịch sử, dashboard, rà soát dữ liệu (cả lệch sổ), tra mã NV công khai |
 | `VppProposals.gs` | Đề xuất mua: gửi, duyệt từng dòng, từ chối, đã mua, nhận hàng (nhập kho), đóng, quyết định sản phẩm mới |
-| `VppSetup.gs` | `upgradeOfficeSupplyModule` (nâng cấp idempotent + sao lưu), `seedOfficeSupplyNorms`, `seedInitialOfficeSupplyStock`, dữ liệu nguồn |
+| `VppSetup.gs` | `upgradeOfficeSupplyModule` (nâng cấp idempotent + sao lưu), `seedOfficeSupplyNorms`, `seedInitialOfficeSupplyStock`, dữ liệu nguồn; `ensureSchemaV2_` dùng chung mọi lần nâng cấp |
+| `Uniform.gs` | *(v2.1)* Module đồng phục: mẫu / mặt hàng (mẫu × size × tình trạng), tồn kho (dùng chung bộ máy sổ kho của `Vpp.gs`), tiêu chuẩn năm, sổ cấp phát, cho mượn / trả / thu hồi, kiểm tra phiếu đồng phục |
+| `UniformSetup.gs` | *(v2.1)* `upgradeUniformModule` (cấu trúc v3), `seedUniformCatalog` (7 mẫu), `repairIdColumns` (sửa cột định danh bị đổi tên / trống), cảnh báo cột định danh & tiêu đề trùng |
 | `appsscript.json` | Múi giờ `Asia/Ho_Chi_Minh`, runtime V8, Web App: *Execute as me*, *Anyone* |
 | `sample-data/` | CSV mẫu / template cho sheet `NHAN_VIEN` |
 

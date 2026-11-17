@@ -8,6 +8,7 @@ import { HandoverForm } from '../../components/handover/HandoverForm';
 import { Button, ButtonLink } from '../../components/ui/Button';
 import { ErrorState, InlineAlert, LoadingCard } from '../../components/ui/States';
 import { useToast } from '../../components/ui/Toast';
+import { UniformHandoverForm, type UniformFormValues } from '../../components/uniform/UniformHandoverForm';
 import { VppHandoverForm, type VppFormValues } from '../../components/vpp/VppHandoverForm';
 import { useAsync } from '../../hooks/useAsync';
 import { useDocumentTitle } from '../../hooks/usePageMeta';
@@ -55,6 +56,23 @@ function toVppValues(handover: AdminHandoverDetail, employees: Employee[]): VppF
   };
 }
 
+function toUniformValues(handover: AdminHandoverDetail, employees: Employee[]): UniformFormValues {
+  return {
+    ...peopleOf(handover, employees),
+    lines: handover.items
+      .filter((item) => item.productId)
+      .map((item) => ({
+        uid: newUid(),
+        productId: item.productId,
+        quantity: item.quantity ?? 1,
+        issueKind: item.issueKind === 'CHO_MUON' ? 'CHO_MUON' : 'CAP_PHAT',
+        dueDate: item.issueKind === 'CHO_MUON' ? item.deadline : '',
+        note: item.note,
+        overQuotaReason: item.overNormReason ?? '',
+      })),
+  };
+}
+
 function savedMessage(result: AdminUpdateResponse): string {
   const base = result.linkRotated
     ? 'Đã lưu. Đã cấp link mới cho người nhận mới — hãy gửi lại link.'
@@ -82,9 +100,14 @@ export default function AdminHandoverEditPage() {
 
   const handover = data.data?.handover;
   const isSupply = handover?.handoverType === 'OFFICE_SUPPLY';
+  const isUniform = handover?.handoverType === 'UNIFORM';
   const initialValues = useMemo(
-    () => (data.data && !isSupply ? toFormValues(data.data.handover, data.data.employees) : undefined),
-    [data.data, isSupply],
+    () => (data.data && !isSupply && !isUniform ? toFormValues(data.data.handover, data.data.employees) : undefined),
+    [data.data, isSupply, isUniform],
+  );
+  const initialUniformValues = useMemo(
+    () => (data.data && isUniform ? toUniformValues(data.data.handover, data.data.employees) : undefined),
+    [data.data, isUniform],
   );
   const initialVppValues = useMemo(
     () => (data.data && isSupply ? toVppValues(data.data.handover, data.data.employees) : undefined),
@@ -148,7 +171,7 @@ export default function AdminHandoverEditPage() {
             <p className="mt-1 text-sm text-stone-600">
               {HANDOVER_TYPE_LABELS[handover.handoverType] ?? handover.handoverType} · Sau khi lưu, biên bản chuyển về “Chờ xác nhận”.
               Nếu đổi người nhận, hệ thống cấp link mới và link cũ hết hiệu lực.
-              {isSupply ? ' Số lượng giữ chỗ trong kho được điều chỉnh theo phần chênh lệch.' : ''}
+              {isSupply || isUniform ? ' Số lượng giữ chỗ trong kho được điều chỉnh theo phần chênh lệch.' : ''}
             </p>
           </div>
           {staleMessage && (
@@ -206,7 +229,19 @@ export default function AdminHandoverEditPage() {
                   onSubmit={(input) => save(input, handover.contentHash)}
                 />
               )}
-              {!isSupply && initialValues && handover.handoverType !== 'OFFICE_SUPPLY' && (
+              {isUniform && initialUniformValues && (
+                <UniformHandoverForm
+                  key={handover.contentHash}
+                  employees={data.data.employees}
+                  initialValues={initialUniformValues}
+                  handoverId={handover.id}
+                  submitLabel="LƯU THAY ĐỔI"
+                  submitIcon={<Save className="size-5" aria-hidden="true" />}
+                  onCancel={() => navigate(`/admin/ban-giao/${id}`)}
+                  onSubmit={(input) => save(input, handover.contentHash)}
+                />
+              )}
+              {initialValues && handover.handoverType !== 'OFFICE_SUPPLY' && handover.handoverType !== 'UNIFORM' && (
                 <HandoverForm
                   key={handover.contentHash}
                   handoverType={handover.handoverType}

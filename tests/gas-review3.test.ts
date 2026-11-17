@@ -37,8 +37,8 @@ function rowOf(env: Env, id: string) {
   return env.rt.sheet('BAN_GIAO').toObjects().find((r: { handover_id: string }) => r.handover_id === id);
 }
 
-function adminDetail(env: Env, id: string, sealKey?: string) {
-  const res = env.admin('adminGetHandover', sealKey ? { id, sealKey } : { id });
+function adminDetail(env: Env, id: string, sealKey?: string, sealLegacyIds?: string[]) {
+  const res = env.admin('adminGetHandover', sealKey ? { id, sealKey, ...(sealLegacyIds ? { sealLegacyIds } : {}) } : { id });
   if (!res.ok) throw new Error(JSON.stringify(res.error));
   return res.data.handover;
 }
@@ -144,14 +144,34 @@ describe('[RÀ SOÁT 3] Toàn vẹn biên bản đã ký — niêm phong cả ý
     expect(sig.error?.code).toBe('INTEGRITY_ERROR');
   });
 
-  it('ký khi Worker chưa có khóa: vẫn có mã băm toàn biên bản (phát hiện sửa tay thông thường), niêm phong = NONE', () => {
+  it('ký khi Worker chưa có khóa: vẫn có mã băm toàn biên bản; nay có khóa → thiếu niêm phong là BỊ XÓA, trừ biên bản trong SEAL_LEGACY_IDS', () => {
     const env = setupGas();
     const created = createHandover(env);
     expect(confirmAs(env, created.token.hash).ok).toBe(true);
     expect(rowOf(env, created.id).record_seal).toBe('');
-    expect(adminDetail(env, created.id, SEAL_KEY).integrity).toMatchObject({ status: 'OK', checks: { record: true, seal: 'NONE' } });
+    // Worker chưa có khóa: chấp nhận (NONE).
+    expect(adminDetail(env, created.id).integrity).toMatchObject({ status: 'OK', checks: { record: true, seal: 'NONE' } });
+    // Worker có khóa: biên bản có mã nội dung mà thiếu niêm phong KHÔNG được coi là nguyên vẹn…
+    expect(adminDetail(env, created.id, SEAL_KEY).integrity).toMatchObject({ status: 'MISMATCH', checks: { record: true, seal: 'MISSING' } });
+    // …trừ khi được khai báo là ký trước khi cấu hình khóa (danh sách nằm ở Cloudflare).
+    expect(adminDetail(env, created.id, SEAL_KEY, [created.id]).integrity).toMatchObject({ status: 'OK', checks: { seal: 'NONE' } });
     setCell(env, 'BAN_GIAO', 'handover_id', created.id, 'receiver_comment', 'Đã nhận đủ');
     expect(adminDetail(env, created.id).integrity.status).toBe('MISMATCH');
+  });
+
+  it('[GAS-4] sửa nội dung, tự tính lại content_hash rồi XÓA record_hash + record_seal → vẫn bị phát hiện; không dựng lại PDF, không hiện chữ ký', () => {
+    const env = setupGas();
+    const { id } = signedHandover(env);
+    setCell(env, 'BAN_GIAO', 'handover_id', id, 'receiver_comment', '');
+    const rec = env.rt.run('findHandoverById_', id).record;
+    setCell(env, 'BAN_GIAO', 'handover_id', id, 'content_hash', env.rt.run('computeContentHash_', rec, env.rt.run('loadItems_', id, rec)));
+    setCell(env, 'BAN_GIAO', 'handover_id', id, 'record_hash', '');
+    setCell(env, 'BAN_GIAO', 'handover_id', id, 'record_seal', '');
+    expect(adminDetail(env, id, SEAL_KEY).integrity).toMatchObject({ status: 'MISMATCH', checks: { content: true, record: null, seal: 'MISSING' } });
+    const regen = env.admin('adminGeneratePdf', { id, force: true, sealKey: SEAL_KEY });
+    expect(regen.error?.code).toBe('INTEGRITY_ERROR');
+    expect(regen.error?.message).toContain('record_seal');
+    expect(env.admin('adminGetSignature', { id, sealKey: SEAL_KEY }).error?.code).toBe('INTEGRITY_ERROR');
   });
 });
 
@@ -772,7 +792,7 @@ describe('[RÀ SOÁT 3] Mã nguồn Apps Script thiếu file / còn file cũ →
     const { call } = runtimeFrom((dir) => fs.writeFileSync(path.join(dir, 'ZZ_Config_v1.gs'), "var APP = { NAME: 'dta-handover', VERSION: '1.0.0' };\n"));
     const res = call('health');
     expect(res.error?.code).toBe('NOT_CONFIGURED');
-    expect(res.error?.message).toMatch(/trộn code nhiều phiên bản \(Config 1\.0\.0, Code 2\.0\.0\)/);
+    expect(res.error?.message).toMatch(/trộn code nhiều phiên bản \(Config 1\.0\.0, Code 2\.1\.0\)/);
   });
 });
 

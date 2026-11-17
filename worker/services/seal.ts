@@ -16,8 +16,25 @@ export async function recordSealKey(env: Env): Promise<string> {
   return hmacSha256Hex(secret, 'dta-record-seal-key-v1');
 }
 
-/** Payload gửi Apps Script + sealKey (khi đã cấu hình). */
-export async function withSealKey<T extends object>(env: Env, payload: T): Promise<T & { sealKey?: string }> {
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * SEAL_LEGACY_IDS: mã (handover_id) các biên bản ký TRƯỚC khi cấu hình RECORD_SEAL_SECRET, cách nhau bởi dấu phẩy / khoảng trắng.
+ * Khi đã có khóa, biên bản có mã nội dung mà ô niêm phong trống bị coi là ĐÃ BỊ SỬA (người sửa Sheet xóa niêm phong để "hợp thức
+ * hóa" dữ liệu đã sửa) — trừ các biên bản liệt kê ở đây. Danh sách nằm ở Cloudflare, không nằm trên Sheet / Apps Script.
+ */
+export function sealLegacyIds(env: Env): string[] {
+  return (env.SEAL_LEGACY_IDS ?? '')
+    .split(/[\s,;]+/)
+    .map((id) => id.trim().toLowerCase())
+    .filter((id) => UUID.test(id))
+    .slice(0, 500);
+}
+
+/** Payload gửi Apps Script + sealKey (khi đã cấu hình) + danh sách biên bản ký trước khi có khóa. */
+export async function withSealKey<T extends object>(env: Env, payload: T): Promise<T & { sealKey?: string; sealLegacyIds?: string[] }> {
   const sealKey = await recordSealKey(env);
-  return sealKey ? { ...payload, sealKey } : payload;
+  if (!sealKey) return payload;
+  const legacy = sealLegacyIds(env);
+  return legacy.length ? { ...payload, sealKey, sealLegacyIds: legacy } : { ...payload, sealKey };
 }

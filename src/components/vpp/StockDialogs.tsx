@@ -20,7 +20,7 @@ import { NumberInput } from '../ui/NumberInput';
 import { InlineAlert } from '../ui/States';
 import { Qty } from './Badges';
 
-function useDialogErrors() {
+export function useDialogErrors() {
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [formError, setFormError] = useState<string | null>(null);
   function fromError(err: unknown, fallback: string) {
@@ -35,7 +35,7 @@ function useDialogErrors() {
 }
 
 /** Nhắc khi mở lại hộp thoại sau một lần bấm lỗi chưa rõ kết quả (mã thao tác được dùng lại). */
-function ResumedNotice({ what }: { what: string }) {
+export function ResumedNotice({ what }: { what: string }) {
   return (
     <InlineAlert tone="warning">
       Lần {what} trước cho mục này bị lỗi kết nối — chưa rõ máy chủ đã ghi hay chưa. Cứ nhập lại như lần trước: nếu lần đó đã ghi, hệ
@@ -45,13 +45,13 @@ function ResumedNotice({ what }: { what: string }) {
 }
 
 /** Lỗi không cho biết thao tác đã được ghi hay chưa: mất mạng, hết thời gian chờ, máy chủ / Apps Script lỗi, phản hồi hỏng. */
-function isAmbiguousFailure(error: unknown): boolean {
+export function isAmbiguousFailure(error: unknown): boolean {
   if (!(error instanceof ApiClientError)) return true;
   return error.status === 0 || error.status >= 500 || error.code === 'BAD_RESPONSE';
 }
 
 /** Số liệu trên trang có thể đã khác máy chủ (lần ghi chưa rõ kết quả, đã ghi từ lần trước, người khác vừa thao tác) → nên tải lại. */
-function shouldReload(error: unknown): boolean {
+export function shouldReload(error: unknown): boolean {
   return isAmbiguousFailure(error) || isApiError(error, 'REQUEST_REUSED') || isStaleStateError(error);
 }
 
@@ -63,7 +63,7 @@ function shouldReload(error: unknown): boolean {
  */
 const unresolvedOperations = new Map<string, string>();
 
-function useOperationKey(kind: 'product-create' | 'stock-in' | 'adjust') {
+export function useOperationKey(kind: string) {
   const key = useRef(newRequestId());
   /** Hộp thoại mở cho `target`: thao tác mới, hoặc tiếp tục mã của lần trước chưa rõ kết quả (trả true). */
   const begin = useCallback(

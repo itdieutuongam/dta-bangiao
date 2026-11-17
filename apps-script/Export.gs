@@ -1,5 +1,6 @@
 /**
- * Export.gs — xuất CSV cho trang quản trị (GET /api/admin/export/:dataset): handovers · stock · movements · proposals.
+ * Export.gs — xuất CSV cho trang quản trị (GET /api/admin/export/:dataset): handovers · stock · movements · proposals ·
+ * uniform-stock · uniform-movements · uniform-employees · uniform-holdings.
  *
  * CSV được dựng NGAY TẠI Apps Script: Worker chỉ chuyển nguyên văn bản cho trình duyệt, không lặp từng dòng — xuất vài nghìn
  * dòng không vượt giới hạn CPU 10 ms / request của Cloudflare Workers Free (dựng ở Worker: ~22–33 ms cho 5.000 dòng).
@@ -19,12 +20,23 @@ var EXPORT_LABELS_ = {
   catalog: { MASTER: 'Danh mục', TEMP: 'Tạm / ngoài định mức', PENDING_APPROVAL: 'Chờ duyệt', ARCHIVED: 'Ngừng dùng' },
   stock: { IN_STOCK: 'Còn hàng', LOW_STOCK: 'Sắp hết', OUT_OF_STOCK: 'Hết hàng', UNKNOWN: 'Chưa rõ tồn' },
   movement: {
-    INITIAL: 'Tồn đầu kỳ', IN: 'Nhập kho', RESERVE: 'Giữ chỗ', RELEASE: 'Trả giữ chỗ', OUT: 'Xuất kho', ADJUSTMENT: 'Điều chỉnh / kiểm kê'
+    INITIAL: 'Tồn đầu kỳ', IN: 'Nhập kho', RESERVE: 'Giữ chỗ', RELEASE: 'Trả giữ chỗ', OUT: 'Xuất kho', ADJUSTMENT: 'Điều chỉnh / kiểm kê',
+    ISSUE: 'Xuất kho (phiếu xuất)'
   },
+  voucherType: { IN: 'Phiếu nhập', OUT: 'Phiếu xuất' },
   proposal: {
     SUBMITTED: 'Chờ duyệt', APPROVED: 'Đã duyệt', PARTIALLY_APPROVED: 'Duyệt một phần', REJECTED: 'Từ chối', PURCHASED: 'Đã mua',
     RECEIVED: 'Đã nhập kho', CLOSED: 'Đã đóng'
-  }
+  },
+  // Đồng phục — khớp shared/uniform.ts.
+  uniformMovement: {
+    INITIAL: 'Tồn đầu kỳ', IN: 'Nhập kho', RESERVE: 'Giữ chỗ', RELEASE: 'Trả giữ chỗ', OUT: 'Xuất kho (bàn giao)',
+    ADJUSTMENT: 'Kiểm kê / điều chỉnh', RETURN: 'Nhận lại (nhân viên trả)', DISPOSE: 'Thanh lý / hủy'
+  },
+  uniformCondition: { NEW: 'Mới', USED: 'Đã qua sử dụng' },
+  uniformGender: { NAM: 'Nam', NU: 'Nữ', UNISEX: 'Nam & nữ' },
+  uniformKind: { UNIFORM: 'Đồng phục', PPE: 'Bảo hộ lao động', OTHER: 'Khác' },
+  issueKind: { CAP_PHAT: 'Cấp phát', CHO_MUON: 'Cho mượn' }
 };
 
 /** Bảng tính có thể hiểu ô là công thức: bắt đầu bằng Tab / CR, hoặc ký tự công thức sau các khoảng trắng / ký tự điều khiển. */
@@ -65,7 +77,7 @@ function csvDateTime_(iso) {
 /** Số lượng theo chiều tác động (như trang Lịch sử kho): xuất kho / trả giữ chỗ âm, điều chỉnh giữ dấu, còn lại dương. */
 function signedMovementQuantity_(type, quantity) {
   if (type === 'ADJUSTMENT') return quantity;
-  return type === 'OUT' || type === 'RELEASE' ? -Math.abs(quantity) : Math.abs(quantity);
+  return type === 'OUT' || type === 'RELEASE' || type === 'ISSUE' ? -Math.abs(quantity) : Math.abs(quantity);
 }
 
 function exportHandoversCsv_(filters) {
@@ -147,6 +159,136 @@ function exportProposalsCsv_(filters) {
   };
 }
 
+/** Dòng hàng của phiếu nhập / xuất kho VPP (như sheet "Nhap VPP" / "Xuat VPP" của file Excel cũ) theo bộ lọc trang Phiếu nhập / xuất. */
+function exportVppVoucherLinesCsv_(filters) {
+  var data = apiVppListVouchers_(Object.assign({}, filters, { exportAll: true }));
+  var products = loadProductMap_();
+  var rows = [];
+  data.items.forEach(function (v) {
+    voucherLines_(v.voucherId, products).forEach(function (l) {
+      rows.push([
+        v.voucherCode, EXPORT_LABELS_.voucherType[v.voucherType] || v.voucherType, v.voucherDate, l.productCode, l.productName, l.unit,
+        l.quantity, l.unitPrice, l.amount, v.voucherType === 'IN' ? (STOCK_IN_REASONS[v.reasonType] || v.reasonType) : '', v.supplier,
+        v.invoiceNo, v.department, v.receiverName, v.note, v.actorName, csvDateTime_(v.createdAt)
+      ]);
+    });
+  });
+  var capped = exportCapped_(rows);
+  return {
+    fileBase: 'phieu-nhap-xuat-vpp',
+    header: [
+      'Số phiếu', 'Loại', 'Ngày', 'Mã VPP', 'Tên vật tư', 'ĐVT', 'Số lượng', 'Đơn giá', 'Thành tiền', 'Lý do nhập', 'Nhà cung cấp',
+      'Số hóa đơn', 'Phòng ban', 'Người nhận', 'Ghi chú', 'Người lập', 'Lập lúc'
+    ],
+    rows: capped.rows,
+    total: capped.total
+  };
+}
+
+// ---------------------------------------------------------------- Đồng phục
+
+function uniformMovementQuantity_(type, quantity) {
+  if (type === 'ADJUSTMENT') return quantity;
+  return type === 'OUT' || type === 'RELEASE' || type === 'DISPOSE' ? -Math.abs(quantity) : Math.abs(quantity);
+}
+
+function exportCapped_(rows) {
+  return { rows: rows.slice(0, APP.EXPORT_MAX_ROWS), total: rows.length };
+}
+
+/** Tồn kho đồng phục: một dòng / mặt hàng (mẫu × size × tình trạng). */
+function exportUniformStockCsv_(filters) {
+  var data = apiDpListStock_({ q: filters.q, includeInactive: filters.includeInactive === true });
+  var L = EXPORT_LABELS_;
+  var rows = [];
+  data.models.forEach(function (m) {
+    m.skus.forEach(function (s) {
+      rows.push([
+        m.modelCode, m.modelName, L.uniformKind[m.kind] || m.kind, L.uniformGender[m.gender] || m.gender, s.size,
+        L.uniformCondition[s.condition] || s.condition, s.skuCode, s.stock.onHand, s.stock.reserved, s.stock.available,
+        s.stock.minimumStock, L.stock[s.stock.status] || s.stock.status, m.unit, m.referencePrice, m.countsTowardQuota,
+        m.appliesTo, m.active && s.active
+      ]);
+    });
+  });
+  var capped = exportCapped_(rows);
+  return {
+    fileBase: 'ton-kho-dong-phuc',
+    header: [
+      'Mã mẫu', 'Mẫu', 'Loại', 'Giới tính', 'Size', 'Tình trạng hàng', 'Mã hàng', 'Tồn thực tế', 'Đang giữ chỗ', 'Khả dụng',
+      'Tồn tối thiểu', 'Tình trạng tồn', 'ĐVT', 'Giá tham khảo (VND)', 'Tính tiêu chuẩn năm', 'Đối tượng sử dụng', 'Đang dùng'
+    ],
+    rows: capped.rows,
+    total: capped.total
+  };
+}
+
+function exportUniformMovementsCsv_(filters) {
+  var data = apiDpListMovements_(Object.assign({}, filters, { exportAll: true }));
+  var L = EXPORT_LABELS_;
+  return {
+    fileBase: 'lich-su-kho-dong-phuc',
+    header: [
+      'Thời gian', 'Mã hàng', 'Mẫu', 'Size', 'Tình trạng hàng', 'Loại', 'Số lượng', 'Tồn trước', 'Tồn sau', 'Giữ chỗ trước',
+      'Giữ chỗ sau', 'Phiếu bàn giao', 'Mã NV', 'Người thao tác', 'Lý do'
+    ],
+    rows: data.items.map(function (m) {
+      return [
+        csvDateTime_(m.createdAt), m.skuCode, m.modelName, m.size, L.uniformCondition[m.condition] || m.condition,
+        L.uniformMovement[m.movementType] || m.movementType, uniformMovementQuantity_(m.movementType, m.quantity), m.onHandBefore,
+        m.onHandAfter, m.reservedBefore, m.reservedAfter, m.handoverCode, m.employeeId, m.actorName, m.reason
+      ];
+    }),
+    total: data.total
+  };
+}
+
+/** Sổ cấp phát theo nhân viên của một năm — kèm phần tiêu chuẩn còn lại (lập danh sách đặt may). */
+function exportUniformEmployeesCsv_(filters) {
+  var data = apiDpListEmployees_(filters);
+  var L = EXPORT_LABELS_;
+  var capped = exportCapped_(data.employees.map(function (e) {
+    var u = e.usage;
+    return [
+      data.year, e.employeeId, e.fullName, e.department, e.position, e.status === 'ACTIVE' ? 'Đang làm' : 'Ngừng',
+      L.uniformGender[e.gender] || '', e.uniformSize, e.scope ? e.scope.scopeName : (u.source === 'NONE' ? 'Không áp dụng' : 'Mặc định'),
+      u.yearlyQuota, u.issued, u.legacy, u.pending, u.remaining, e.holdings.loaned, e.holdings.overdue, e.holdings.holding,
+      csvDateTime_(e.lastIssuedAt)
+    ];
+  }));
+  return {
+    fileBase: 'cap-phat-dong-phuc-' + data.year,
+    header: [
+      'Năm', 'Mã NV', 'Họ tên', 'Phòng ban', 'Chức vụ', 'Trạng thái', 'Giới tính', 'Size', 'Nhóm tiêu chuẩn', 'Tiêu chuẩn năm',
+      'Đã cấp (phiếu đồng phục)', 'Đã cấp (ghi ở phiếu cũ)', 'Chờ ký', 'Còn lại', 'Đang mượn', 'Mượn quá hạn', 'Đang giữ (tổng)',
+      'Lần cấp gần nhất'
+    ],
+    rows: capped.rows,
+    total: capped.total
+  };
+}
+
+function exportUniformHoldingsCsv_(filters) {
+  var data = apiDpListHoldings_(filters);
+  var L = EXPORT_LABELS_;
+  var capped = exportCapped_(data.items.map(function (h) {
+    return [
+      h.employeeName, h.employeeId, h.department, h.handoverCode, L.issueKind[h.issueKind] || h.issueKind, h.modelName, h.size,
+      L.uniformCondition[h.condition] || h.condition, h.skuCode, h.quantity, h.returned, h.outstanding, h.dueDate, h.overdue,
+      csvDateTime_(h.confirmedAt)
+    ];
+  }));
+  return {
+    fileBase: 'muon-tra-dong-phuc',
+    header: [
+      'Nhân viên', 'Mã NV', 'Phòng ban', 'Phiếu bàn giao', 'Hình thức', 'Mẫu', 'Size', 'Tình trạng hàng', 'Mã hàng', 'SL nhận',
+      'Đã trả / thu hồi', 'Còn giữ', 'Hạn trả', 'Quá hạn', 'Ký nhận lúc'
+    ],
+    rows: capped.rows,
+    total: capped.total
+  };
+}
+
 /**
  * Admin: { dataset, filters } → { header: { fileBase, rows, total }, body: csv } — filters đã được Worker kiểm tra (zod). Route đánh
  * dấu stream: doPost trả DÒNG phong bì JSON (header) + "\n" + nội dung CSV nguyên văn (Worker chuyển thẳng, không phân tích).
@@ -156,7 +298,12 @@ function apiAdminExportCsv_(data) {
     'handovers.csv': exportHandoversCsv_,
     'stock.csv': exportStockCsv_,
     'movements.csv': exportMovementsCsv_,
-    'proposals.csv': exportProposalsCsv_
+    'proposals.csv': exportProposalsCsv_,
+    'vpp-vouchers.csv': exportVppVoucherLinesCsv_,
+    'uniform-stock.csv': exportUniformStockCsv_,
+    'uniform-movements.csv': exportUniformMovementsCsv_,
+    'uniform-employees.csv': exportUniformEmployeesCsv_,
+    'uniform-holdings.csv': exportUniformHoldingsCsv_
   };
   var dataset = String(data.dataset || '');
   if (!Object.prototype.hasOwnProperty.call(builders, dataset)) throw appError_('NOT_FOUND', 'Không có dữ liệu xuất này.');

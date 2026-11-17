@@ -33,7 +33,10 @@ export function QuantityStepper({
   // Số từ form đổi (bấm +/−, điền sẵn, đặt lại form) khác số đang gõ → hiện số mới (điều chỉnh state khi render, không cần effect).
   const parsed = parseViNumber(text);
   const shown = parsed === null ? NaN : parsed;
-  if (!Object.is(shown, value) && !(Number.isNaN(shown) && Number.isNaN(value))) setText(numberToInput(value));
+  // So thêm chữ sẽ hiện: số không nguyên (vd. 1,5 gõ tay trên Sheet) đọc lại thành NaN ≠ 1.5 → trước đây setText cùng chữ mỗi lần
+  // render → vòng lặp render vô hạn, trang sửa phiếu bị treo.
+  const nextText = numberToInput(value);
+  if (!Object.is(shown, value) && !(Number.isNaN(shown) && Number.isNaN(value)) && text !== nextText) setText(nextText);
 
   // Ô trống / chữ sai định dạng: bấm +/− đưa về số nhỏ nhất.
   const step = (delta: number) => onChange(Number.isFinite(value) ? Math.min(max, Math.max(min, Math.round(value + delta))) : min);

@@ -31,6 +31,26 @@ import { healthHandler } from './api/health';
 import { vppEmployeeLookupHandler, vppPublicCatalogHandler, vppSubmitProposalHandler } from './api/publicVpp';
 import { staffLoginHandler, staffSessionHandler } from './api/staff';
 import {
+  uniformCreateModelHandler,
+  uniformCreateNormHandler,
+  uniformDashboardHandler,
+  uniformEmployeeDetailHandler,
+  uniformEmployeeProfileHandler,
+  uniformEmployeesHandler,
+  uniformHandoverContextHandler,
+  uniformHoldingsHandler,
+  uniformMovementsHandler,
+  uniformNormsHandler,
+  uniformReturnHandler,
+  uniformScopeMappingHandler,
+  uniformStockAdjustHandler,
+  uniformStockDisposeHandler,
+  uniformStockHandler,
+  uniformStockInHandler,
+  uniformUpdateModelHandler,
+  uniformUpdateNormHandler,
+} from './api/uniform';
+import {
   vppApproveProposalHandler,
   vppCloseProposalHandler,
   vppCreateNormHandler,
@@ -53,7 +73,13 @@ import {
   vppSkipHandler,
   vppStockAdjustHandler,
   vppStockInHandler,
+  vppStockIssueHandler,
+  vppStockReceiptHandler,
   vppSyncStockHandler,
+  vppImportApplyHandler,
+  vppImportPreviewHandler,
+  vppVoucherDetailHandler,
+  vppVouchersHandler,
   vppUpdateNormHandler,
   vppUpdateProductHandler,
 } from './api/vpp';
@@ -112,6 +138,12 @@ const router = new Router()
   .get('/api/admin/vpp/stock', vppProductsHandler)
   .post('/api/admin/vpp/stock/in', vppStockInHandler)
   .post('/api/admin/vpp/stock/adjust', vppStockAdjustHandler)
+  .post('/api/admin/vpp/stock/receipt', vppStockReceiptHandler)
+  .post('/api/admin/vpp/stock/issue', vppStockIssueHandler)
+  .get('/api/admin/vpp/vouchers', vppVouchersHandler)
+  .get('/api/admin/vpp/vouchers/:id', vppVoucherDetailHandler)
+  .post('/api/admin/vpp/import/preview', vppImportPreviewHandler)
+  .post('/api/admin/vpp/import/apply', vppImportApplyHandler)
   .get('/api/admin/vpp/movements', vppMovementsHandler)
   .get('/api/admin/vpp/handover-context', vppHandoverContextHandler)
   .get('/api/admin/vpp/proposals', vppProposalsHandler)
@@ -126,7 +158,26 @@ const router = new Router()
   .post('/api/admin/vpp/data-review/merge', vppMergeHandler)
   .post('/api/admin/vpp/data-review/promote', vppPromoteHandler)
   .post('/api/admin/vpp/data-review/skip', vppSkipHandler)
-  .post('/api/admin/vpp/data-review/sync-stock', vppSyncStockHandler);
+  .post('/api/admin/vpp/data-review/sync-stock', vppSyncStockHandler)
+  // Quản trị — đồng phục
+  .get('/api/admin/uniform/dashboard', uniformDashboardHandler)
+  .get('/api/admin/uniform/stock', uniformStockHandler)
+  .post('/api/admin/uniform/models', uniformCreateModelHandler)
+  .put('/api/admin/uniform/models/:id', uniformUpdateModelHandler)
+  .post('/api/admin/uniform/stock/in', uniformStockInHandler)
+  .post('/api/admin/uniform/stock/adjust', uniformStockAdjustHandler)
+  .post('/api/admin/uniform/stock/dispose', uniformStockDisposeHandler)
+  .get('/api/admin/uniform/movements', uniformMovementsHandler)
+  .get('/api/admin/uniform/norms', uniformNormsHandler)
+  .post('/api/admin/uniform/norms', uniformCreateNormHandler)
+  .put('/api/admin/uniform/norms/:id', uniformUpdateNormHandler)
+  .put('/api/admin/uniform/scope-mapping', uniformScopeMappingHandler)
+  .get('/api/admin/uniform/employees', uniformEmployeesHandler)
+  .get('/api/admin/uniform/employees/:employeeId', uniformEmployeeDetailHandler)
+  .put('/api/admin/uniform/employees/:employeeId/profile', uniformEmployeeProfileHandler)
+  .get('/api/admin/uniform/handover-context', uniformHandoverContextHandler)
+  .get('/api/admin/uniform/holdings', uniformHoldingsHandler)
+  .post('/api/admin/uniform/returns', uniformReturnHandler);
 
 async function handleApi(request: Request, env: Env, ctx: ExecutionContext, url: URL): Promise<Response> {
   const started = Date.now();

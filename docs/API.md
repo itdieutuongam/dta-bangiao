@@ -1,4 +1,4 @@
-# API — DTA Handover v2 (Cloudflare Worker)
+# API — DTA Handover v2.1 (Cloudflare Worker)
 
 Base URL: cùng domain với giao diện (ví dụ `https://bangiao.dieutuongam.com`). Body JSON (`Content-Type: application/json`).
 Request thay đổi dữ liệu (POST/PUT) phải gửi từ cùng origin (header `Origin`) — khác origin → `403 FORBIDDEN`.
@@ -99,8 +99,8 @@ Mã gửi tới email **hiện tại** trong `NHAN_VIEN` (sửa email có hiệu
 | POST | `/api/admin/login` | `{ username?, password }` (username bắt buộc khi dùng `ADMIN_USERS`) → `Set-Cookie` (HttpOnly, Secure, SameSite=Lax) + `{ authenticated, expiresAt, user, mode, warnings }` |
 | POST | `/api/admin/logout` | Xóa cookie |
 | GET | `/api/admin/me` | Phiên hiện tại + `user { username, name }` + cảnh báo cấu hình |
-| GET | `/api/admin/overview` | `{ stats, revisionRequested[], recent[], vpp: { ready, outOfStock[], outOfStockCount, lowStock[], lowStockCount, needsReviewCount, needsReviewProducts, submittedProposals }, notify: { recipients, otpMode, notify: { lastOkAt, lastError }, otp: { lastOkAt, lastError } } }` — email thông báo và email mã OTP báo riêng |
-| GET | `/api/admin/badges` | `{ revisionRequested, submittedProposals }` — huy hiệu trên menu (chỉ đọc cột trạng thái) |
+| GET | `/api/admin/overview` | `{ stats, revisionRequested[], signedWithComment[] (đã ký kèm ghi chú, 30 ngày), recent[], vpp: { ready, outOfStock[], outOfStockCount, lowStock[], lowStockCount, needsReviewCount, needsReviewProducts, submittedProposals }, uniform: { outOfStockSkus, lowStockSkus, loansOverdue, pendingHandovers, employeesMissingSize } \| null, notify: { recipients, otpMode, notify: { lastOkAt, lastError }, otp: { lastOkAt, lastError }, emailCoverage: { active, withEmail } } }` — email thông báo và email mã OTP báo riêng |
+| GET | `/api/admin/badges` | `{ revisionRequested, submittedProposals, overdueUniformLoans }` — huy hiệu trên menu (chỉ đọc cột trạng thái) |
 | GET | `/api/admin/system` | Trang Cài đặt: cấu hình Worker (không lộ secret; `worker.recordSeal` = đã đặt `RECORD_SEAL_SECRET` hợp lệ), phiên bản + cấu trúc dữ liệu Apps Script, danh sách sheet, cảnh báo, `appsScript.notify` (+ `mailQuotaRemaining`, `mailError`) |
 | GET | `/api/admin/export/:dataset` | Xuất CSV theo bộ lọc của trang: `handovers.csv` (query như danh sách phiếu), `stock.csv` (`q`, `stockStatus`, `catalogStatus`, `includeArchived`), `movements.csv` (`productId`, `type`, `from`, `to`, `q`), `proposals.csv` (`status`, `q`). UTF-8 BOM, CRLF, chống chèn công thức; tối đa 5.000 dòng — header `X-Export-Rows`, `X-Export-Total`, `X-Export-Truncated: 1` khi bị cắt. CSV dựng tại Apps Script (`Export.gs`), Worker chuyển thẳng dạng stream (CPU Worker không tăng theo số dòng) |
 | GET | `/api/admin/employees` | Nhân viên ACTIVE (`?all=1`: kèm đã nghỉ + phạm vi định mức VPP) |
@@ -113,7 +113,7 @@ Mã gửi tới email **hiện tại** trong `NHAN_VIEN` (sửa email có hiệu
 |---|---|---|
 | GET | `/api/admin/handovers` | Danh sách + thống kê. Query: `page`, `pageSize`, `code`, `employeeName`, `employeeId`, `sender`, `receiver`, `department`, `handoverType`, `category`, `status`, `from`, `to`. Tìm không phân biệt dấu |
 | POST | `/api/admin/handovers` | **Tạo phiếu** (body bên dưới) → 201 `{ id, code, status, handoverType, createdAt, receiver, link, warnings[], confirmOtp: { required, blocked, email } }` (gửi lại cùng mã đúng nội dung → 200 `duplicate: true`; khác nội dung → 409 `REQUEST_REUSED` kèm `details.existing { id, code }`) |
-| GET | `/api/admin/handovers/:id` | `{ handover: { …, createdBy, confirmMethod (OTP_EMAIL \| NO_EMAIL \| OTP_OFF \| ""), otp, integrity { status, contentHash, signatureSha256, checks: { content, record (null = ký trước khi có mã này), seal: OK \| MISMATCH \| UNVERIFIED \| NONE } \| null }, editPendingSince ("" hoặc thời điểm lần lưu sửa dở), confirmedFromCreatorDevice, history[], link }, categories }` |
+| GET | `/api/admin/handovers/:id` | `{ handover: { …, createdBy, confirmMethod (OTP_EMAIL \| NO_EMAIL \| OTP_OFF \| ""), otp, integrity { status, contentHash, signatureSha256, checks: { content, record (null = ký trước khi có mã này), seal: OK \| MISMATCH \| MISSING \| UNVERIFIED \| NONE } \| null }, editPendingSince ("" hoặc thời điểm lần lưu sửa dở), confirmedFromCreatorDevice, history[], link }, categories }` |
 | PUT | `/api/admin/handovers/:id` | Sửa — chỉ `PENDING` / `REVISION_REQUESTED` → `{ handover, categories, linkRotated, warnings[] }`. Lưu trọn vẹn theo phiên bản nội dung: lỗi giữa chừng → người nhận vẫn thấy bản cũ (hoặc “đang cập nhật”), lưu lại từ trang sửa sẽ hoàn tất |
 | POST | `/api/admin/handovers/:id/cancel` | `{ reason? }` — chỉ khi chưa xác nhận (phiếu VPP: trả giữ chỗ) |
 | POST | `/api/admin/handovers/:id/regenerate-link` | → `{ link }` (link cũ hết hiệu lực) |
@@ -175,6 +175,46 @@ sản phẩm — không ghi hai lần dù người dùng đóng hộp thoại r�
 | POST | `/api/admin/vpp/data-review/promote` · `/skip` | TẠO SẢN PHẨM MỚI / BỎ QUA (không áp dụng cho sản phẩm chờ duyệt từ đề xuất) |
 | POST | `/api/admin/vpp/data-review/sync-stock` | `{ productId }` — đặt số tồn theo sổ biến động (có ghi lịch sử) → `{ synced, product }` |
 
+### Văn phòng phẩm — phiếu nhập / xuất, cập nhật từ Excel *(v2.1)*
+
+| Method | Path | Mô tả |
+|---|---|---|
+| POST | `/api/admin/vpp/stock/receipt` | Phiếu nhập: `{ reasonType, date, supplier, invoiceNo, note, updatePrice, lines: [{ productId, quantity, unitPrice, note }] (1–300), clientRequestId }` → 201 `{ voucher, duplicate }` (gửi lại → 200 `duplicate: true`; khác nội dung → 409 `REQUEST_REUSED`) |
+| POST | `/api/admin/vpp/stock/issue` | Phiếu xuất: `{ date, department, receiverEmployeeId, receiverName, note, lines: [{ productId, quantity, note }], clientRequestId }` (cần phòng ban hoặc người nhận) → 201 `{ voucher, duplicate, warnings[] }`; vượt khả dụng → 409 `INSUFFICIENT_STOCK` (`details.shortages[]`, `fieldErrors["lines.i.quantity"]`) |
+| GET | `/api/admin/vpp/vouchers` | `?type=IN\|OUT&from=&to=&department=&q=&page=&pageSize=` → `{ items[], total, page, pageSize, issueSummary { departments[], totals, total, rows[{ productId, productName, unit, byDepartment, total }] }, departments[] }` |
+| GET | `/api/admin/vpp/vouchers/:id` | `{ voucher: { …, lines[{ productId, productName, unit, movementType, quantity, unitPrice, amount, onHandBefore, onHandAfter }] } }` |
+| POST | `/api/admin/vpp/import/preview` | Xem trước cập nhật từ Excel (không ghi): `{ rows: [{ line, code, name, unit, price, stock, minimumStock, matchProductId? }] (≤ 3000), options: { setStock, archiveMissing }, fileName }` → `{ plan: { summary, creates[], updates[], stockChanges[], archives[], kept[], skipped[], warnings[], suggestions[] } }` |
+| POST | `/api/admin/vpp/import/apply` | Như trên + `clientRequestId` → `{ result: { …summary, fileName, at }, duplicate }` (gửi lại cùng mã → `duplicate: true`, không làm lại) |
+
+Xuất CSV: `vpp-vouchers.csv` (bộ lọc như `/vouchers`) — một dòng / mặt hàng của phiếu.
+
+### Đồng phục *(v2.1 — [DONG_PHUC.md](DONG_PHUC.md))*
+
+| Method | Path | Mô tả |
+|---|---|---|
+| GET | `/api/admin/uniform/dashboard` | Số liệu (tồn, size hết / sắp hết, đang mượn / quá hạn, đã cấp trong năm, thiếu size / giới tính, vượt tiêu chuẩn), cảnh báo, đồ mượn quá hạn, phiếu gần đây |
+| GET | `/api/admin/uniform/stock` | `?q=&includeInactive=` → `{ models: [{ …mẫu, stock (tổng hợp), skus: [{ productId, skuCode, size, condition, stock }] }] }` |
+| POST · PUT | `/api/admin/uniform/models` · `/api/admin/uniform/models/:id` | Thêm (201; gửi lại cùng `clientRequestId` → 200 `duplicate: true`) / sửa mẫu `{ modelCode?, modelName, kind, gender, sizes[], unit, referencePrice, countsTowardQuota, minimumStock, appliesTo, note, active }`. Bỏ size còn tồn / giữ chỗ → 409 `INVALID_STATE` |
+| POST | `/api/admin/uniform/stock/in` | `{ modelId, size, condition, quantity, reasonType (MUA_MOI \| TON_DAU_KY \| CHUYEN_KHO \| KHAC), unitPrice?, date?, note, clientRequestId }` → `{ sku, duplicate }` |
+| POST | `/api/admin/uniform/stock/adjust` | `{ productId, countedQuantity, reason, clientRequestId }` → `ADJUSTMENT` |
+| POST | `/api/admin/uniform/stock/dispose` | `{ productId, quantity, reason, clientRequestId }` → `DISPOSE` (không thấp hơn số đang giữ chỗ) |
+| GET | `/api/admin/uniform/movements` | Sổ biến động (`page`, `pageSize`, `modelId`, `productId`, `type`, `from`, `to`, `q`) |
+| GET | `/api/admin/uniform/norms` | `{ norms[], scopes[], departments[{ department, employeeCount, scope, mapping }], defaultYearlyQuota }` |
+| POST · PUT | `/api/admin/uniform/norms` · `/api/admin/uniform/norms/:id` | `{ scopeId \| scopeName (nhóm mới), modelId ("" = tổng mọi mẫu), gender ("" \| NAM \| NU), yearlyQuantity, note, effectiveFrom, effectiveTo, active }` |
+| PUT | `/api/admin/uniform/scope-mapping` | `{ department, scopeId }` — `""` = tự khớp / mặc định, `"NONE"` = không áp dụng tiêu chuẩn |
+| GET | `/api/admin/uniform/employees` | Sổ cấp phát: `?year=&q=&department=&includeInactive=` → `{ year, employees[{ …, usage { yearlyQuota, source, issued, pending, legacy, remaining }, modelQuotas[], holdings, suggestedModelIds[] }], stats }` |
+| GET | `/api/admin/uniform/employees/:employeeId` | Hồ sơ đồng phục: `{ employee, holdings[], returns[], issues[], legacyItems[] }` (`?year=`) |
+| PUT | `/api/admin/uniform/employees/:employeeId/profile` | `{ gender ("" \| NAM \| NU), uniformSize }` → ghi `NHAN_VIEN.gender / uniform_size` |
+| GET | `/api/admin/uniform/handover-context` | `?receiverEmployeeId=&handoverId=` → người nhận (giới tính, size), tiêu chuẩn + đã dùng, mẫu + mặt hàng + khả dụng (cộng phần đang giữ cho chính phiếu đang sửa) |
+| GET | `/api/admin/uniform/holdings` | `?status=loans \| overdue \| outstanding \| all&employeeId=&q=` → `{ items[], total, stats { loans, overdue, dueSoon, issued } }` |
+| POST | `/api/admin/uniform/returns` | `{ handoverId, itemId, quantity, result (RESTOCK \| DAMAGED \| LOST), restockCondition, reason, note, clientRequestId }` → 201 `{ record, holding, duplicate }` (gửi lại cùng mã → 200 `duplicate: true`; khác nội dung → 409 `REQUEST_REUSED`) |
+
+Phiếu đồng phục: `POST /api/admin/handovers` với `handoverType: "UNIFORM"`, `items: []`, `supplies: []`,
+`uniforms: [{ productId, quantity, issueKind (CAP_PHAT \| CHO_MUON), dueDate (bắt buộc khi cho mượn), note, overQuotaReason }]`.
+Vượt tiêu chuẩn năm mà dòng cấp phát chưa có `overQuotaReason` → 422 `NORM_EXCEEDED`; không đủ khả dụng → 409 `INSUFFICIENT_STOCK`.
+Xuất CSV: `uniform-stock.csv` (`q`, `includeInactive`), `uniform-movements.csv` (bộ lọc như sổ biến động), `uniform-employees.csv`
+(`year`, `q`, `department`), `uniform-holdings.csv` (`status`, `q`).
+
 ## Apps Script (nội bộ, chỉ Worker gọi)
 
 `POST <GAS_WEB_APP_URL>` với envelope ký HMAC (xem [ARCHITECTURE.md](ARCHITECTURE.md)). Mỗi action có **scope**; gọi sai scope → `FORBIDDEN`.
@@ -188,7 +228,14 @@ sản phẩm — không ghi hai lần dù người dùng đóng hộp thoại r�
   `vppListProducts`, `vppSaveProduct`, `vppListNorms`, `vppSaveNorm`, `vppSetScopeMapping`, `vppStockIn`, `vppStockAdjust`,
   `vppListMovements`, `vppHandoverContext`, `vppReconcileHandover`, `vppDataReview`, `vppMergeProduct`, `vppPromoteProduct`,
   `vppSkipReview`, `vppSyncStock`, `vppListProposals`, `vppGetProposal`, `vppReviewProposal`, `vppRejectProposal`,
-  `vppSetProposalStatus`, `vppReceiveProposal`, `vppProductDecision`
+  `vppSetProposalStatus`, `vppReceiveProposal`, `vppProductDecision`, *(v2.1)* `vppStockReceipt`, `vppStockIssue`, `vppListVouchers`,
+  `vppGetVoucher`, `vppImportPlan`, `vppImportApply`, `dpDashboard`, `dpListStock`, `dpSaveModel`,
+  `dpStockIn`, `dpStockAdjust`, `dpStockDispose`, `dpListMovements`, `dpListNorms`, `dpSaveNorm`, `dpSetScopeMapping`,
+  `dpListEmployees`, `dpSaveEmployeeProfile`, `dpEmployeeDetail`, `dpHandoverContext`, `dpListHoldings`, `dpRecordReturn`
+
+Payload các action kiểm tra niêm phong (`confirmHandover`, `adminGetHandover`, `adminGetSignature`, `adminGetPdf`, `adminGeneratePdf`,
+`getPdfByToken`, `generatePdf`…) có thể kèm `sealKey` (khóa dẫn xuất từ `RECORD_SEAL_SECRET`) và *(v2.1)* `sealLegacyIds[]`
+(từ `SEAL_LEGACY_IDS`) — không lưu ở Apps Script.
 
 `adminListHandovers`, `vppListMovements`, `vppListProposals` nhận `exportAll: true` (boolean) → một trang tối đa 5.000 dòng theo
 đúng bộ lọc (dùng cho xuất CSV).

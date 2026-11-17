@@ -172,10 +172,53 @@ function compareVi_(a, b) {
 var PASSWORD_MESSAGE_ =
   'Không được ghi mật khẩu vào biên bản. Hãy bàn giao mật khẩu trực tiếp hoặc yêu cầu người nhận tự đặt lại.';
 
-/** Phát hiện chuỗi dạng "password: abc", "mật khẩu = 123", "MK: x". */
+/** Loại nội dung "Tài khoản" — kiểm tra thêm cặp "email / mật khẩu". Khớp ACCOUNT_CATEGORY_CODE (shared/schemas.ts). */
+var ACCOUNT_CATEGORY_CODE_ = 'TAI_KHOAN';
+
+/** Chuẩn hóa để dò mật khẩu: NFKC ("：" "＝" full-width → ":" "="), bỏ dấu, chữ thường. */
+function passwordScanText_(value) {
+  var s = String(value === null || value === undefined ? '' : value);
+  if (typeof s.normalize === 'function') s = s.normalize('NFKC');
+  return normalizeText_(s);
+}
+
+/**
+ * Phát hiện chuỗi dạng khai báo mật khẩu: "password: abc", "mật khẩu = 123", "MK: x", "mật khẩu là 123", "mật khẩu wifi：abc",
+ * "MK 123456", link "https://user:pw@host". Khớp containsPasswordLike (shared/text.ts) — sửa một bên phải sửa cả bên kia.
+ */
 function containsPasswordLike_(value) {
   if (!value) return false;
-  return /(?:^|[^a-z0-9])(?:password|passwd|passcode|pass|pwd|pw|mat khau|matkhau|mk)\s*[:=]\s*\S/.test(normalizeText_(value));
+  var text = passwordScanText_(value);
+  // Mọi từ khóa (kể cả "pass", "pw" — cũng có nghĩa "chuyển giao"): chỉ khi NGAY SAU là ":" / "=".
+  if (/(?:^|[^a-z0-9])(?:password|passwd|passcode|pass|pwd|pw|mat khau|matkhau|mk)\s*[:=]\s*\S/.test(text)) return true;
+  // Từ khóa chắc chắn: tối đa 2 từ chen giữa, hoặc "là" / "is".
+  if (/(?:^|[^a-z0-9])(?:password|passwd|passcode|pwd|mat khau|matkhau|mk)(?:\s+[a-z0-9]+){0,2}\s*(?:[:=]|\bla\b|\bis\b)\s*\S/.test(text)) return true;
+  // Link chứa tài khoản.
+  if (/[a-z][a-z0-9+.-]*:\/\/[^\s/@:]+:[^\s/@]+@/.test(text)) return true;
+  // "MK 123456": từ khóa chắc chắn + chuỗi ≥ 6 ký tự có chữ số (không phải ngày).
+  var re = /(?:^|[^a-z0-9])(?:password|passwd|pwd|mat khau|matkhau|mk)\s+(\S{6,})/g;
+  var m;
+  while ((m = re.exec(text)) !== null) {
+    var v = m[1].replace(/[.,;)]+$/, '');
+    if (/\d/.test(v) && !/^\d{1,4}[\/.-]\d{1,2}(?:[\/.-]\d{1,4})?$/.test(v)) return true;
+  }
+  return false;
+}
+
+/**
+ * Mục TÀI KHOẢN: cặp "email / mật khẩu" ("abc@dta.vn / Abc@123") — dạng đã làm lộ mật khẩu ở dữ liệu thật. Bỏ qua khi phía sau là
+ * email khác hoặc số điện thoại. Khớp containsCredentialPair (shared/text.ts).
+ */
+function containsCredentialPair_(value) {
+  if (!value) return false;
+  var re = /[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}\s*(?:[\/|;,]|\s-\s)\s*(\S{4,})/g;
+  var text = passwordScanText_(value);
+  var m;
+  while ((m = re.exec(text)) !== null) {
+    var v = m[1].replace(/[.,;)]+$/, '');
+    if (v.length >= 4 && !/^[^@\s]+@[^@\s]+\.[a-z]{2,}$/.test(v) && !/^(?:\+?84|0)\d{8,10}$/.test(v.replace(/[\s.-]/g, ''))) return true;
+  }
+  return false;
 }
 
 function isValidDateOnly_(value) {
@@ -518,10 +561,15 @@ function columnLetter_(n) {
   return s;
 }
 
+/**
+ * Một dòng → object theo tên cột. Tiêu đề trùng tên (quản trị viên tự thêm cột "status" / "note " — getHeaders_ đã bỏ khoảng trắng):
+ * lấy cột ĐẦU TIÊN, giống mọi chỗ ghi (columnIndex_, updateRowFields_) — đọc và ghi luôn cùng một cột (trước đây đọc cột cuối →
+ * ghi CONFIRMED vào cột đầu nhưng đọc lại vẫn PENDING). Tiêu đề trùng được báo ở Kiểm tra cấu hình (headerProblems_).
+ */
 function rowToObject_(headers, values) {
   var obj = {};
   for (var j = 0; j < headers.length; j++) {
-    if (headers[j]) obj[headers[j]] = cellToString_(values[j]);
+    if (headers[j] && !Object.prototype.hasOwnProperty.call(obj, headers[j])) obj[headers[j]] = cellToString_(values[j]);
   }
   return obj;
 }
@@ -692,8 +740,15 @@ function appendObjects_(name, objects) {
  */
 function verifiedRowIndex_(name, sheet, rowIndex, record) {
   var idColumn = ROW_ID_COLUMNS[name];
-  if (!idColumn || !record || !record[idColumn]) return rowIndex;
+  if (!idColumn || !record) return rowIndex;
   var current = cellToString_(sheet.getRange(rowIndex, columnIndex_(sheet, idColumn)).getValue());
+  if (!record[idColumn]) {
+    // Dòng đọc lúc trước không có mã: chỉ ghi khi ô mã ở dòng đó VẪN trống (dòng không bị thay bằng dòng khác do sắp xếp / chèn).
+    if (current) {
+      throw appError_('CONFLICT', 'Dữ liệu vừa bị thay đổi trên Google Sheet (dòng cần cập nhật đã đổi chỗ). Vui lòng thử lại.');
+    }
+    return rowIndex;
+  }
   if (current === String(record[idColumn])) return rowIndex;
   var found = findRow_(name, idColumn, record[idColumn]);
   if (!found) {
@@ -768,12 +823,21 @@ function setColumnForIds_(name, column, ids, value) {
   var targetCol = columnIndex_(sheet, column);
   var lastRow = sheet.getLastRow();
   if (lastRow < 2) return 0;
+  // Mã trống KHÔNG BAO GIỜ được khớp: trước đây '' nằm trong tập cần ghi → ghi vào MỌI dòng có ô mã trống trên toàn sheet
+  // (ví dụ cột item_id bị đổi tên → đánh dấu superseded_at mọi dòng nội dung của mọi phiếu → link hiện 0 nội dung).
   var wanted = {};
-  ids.forEach(function (id) { wanted[String(id)] = true; });
+  var skipped = 0;
+  ids.forEach(function (id) {
+    var key = cellToString_(id).trim();
+    if (key) wanted[key] = true;
+    else skipped++;
+  });
+  if (skipped) logInfo_('setColumnForIds.emptyIds', { sheet: name, column: column, skipped: skipped });
   var idValues = sheet.getRange(2, idCol, lastRow - 1, 1).getValues();
   var notations = [];
   for (var i = 0; i < idValues.length; i++) {
-    if (wanted[cellToString_(idValues[i][0])]) notations.push(columnLetter_(targetCol) + (i + 2));
+    var cell = cellToString_(idValues[i][0]).trim();
+    if (cell && wanted[cell]) notations.push(columnLetter_(targetCol) + (i + 2));
   }
   if (!notations.length) return 0;
   var list = sheet.getRangeList(notations);

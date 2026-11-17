@@ -38,6 +38,7 @@ npx wrangler secret put ADMIN_PASSWORD       # hoặc: một mật khẩu chung 
 npx wrangler secret put SESSION_SECRET       # ≥ 32 ký tự ngẫu nhiên
 npx wrangler secret put STAFF_ACCESS_CODE    # (khuyến nghị) mã truy cập nội bộ cho trang /de-xuat-vpp
 npx wrangler secret put RECORD_SEAL_SECRET   # (khuyến nghị) niêm phong biên bản đã ký — ≥ 32 ký tự, KHÔNG đổi sau khi dùng
+# npx wrangler secret put SEAL_LEGACY_IDS    # (v2.1, tùy chọn) xem bảng bên dưới — thường KHÔNG cần
 ```
 
 `ADMIN_USERS` — một dòng JSON, mật khẩu ≥ 12 ký tự, username chỉ gồm `a-z 0-9 . _ -`:
@@ -61,6 +62,7 @@ Cấu hình sai (JSON lỗi, mật khẩu ngắn, username trùng) → không ai
 | `SESSION_SECRET` | secret | bắt buộc (phiên admin + sinh link) |
 | `STAFF_ACCESS_CODE` | secret | khuyến nghị — yêu cầu mã truy cập cho trang đề xuất văn phòng phẩm `/de-xuat-vpp` |
 | `RECORD_SEAL_SECRET` | secret | khuyến nghị — niêm phong biên bản đã ký (Apps Script nhận khóa dẫn xuất theo từng request, không lưu ở Google). Đổi / mất secret → niêm phong các biên bản đã ký trước đó báo "không khớp" — lưu giữ như mật khẩu quản trị |
+| `SEAL_LEGACY_IDS` | secret / var | *(v2.1, tùy chọn)* `handover_id` (cách nhau bởi dấu phẩy) của các biên bản ký **trước** khi đặt `RECORD_SEAL_SECRET`. Khi đã có khóa, biên bản có mã nội dung mà thiếu niêm phong bị coi là đã bị sửa (`MISSING`) — trừ các biên bản liệt kê ở đây. Dữ liệu thật hiện không cần |
 | `APP_BASE_URL` | var (`wrangler.jsonc`) | hiện là `https://bangiao.dieutuongam.com`; để trống = tự lấy domain đang truy cập |
 
 ## 3. Deploy

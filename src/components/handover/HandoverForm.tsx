@@ -25,7 +25,7 @@ import { ItemEditor } from './ItemEditor';
 
 interface HandoverFormProps {
   /** Loại phiếu (không gồm Văn phòng phẩm — dùng VppHandoverForm). Chỉ hiện loại nội dung thuộc loại phiếu này. */
-  handoverType: Exclude<HandoverType, 'OFFICE_SUPPLY'>;
+  handoverType: Exclude<HandoverType, 'OFFICE_SUPPLY' | 'UNIFORM'>;
   employees: Employee[];
   categories: Category[];
   initialValues?: HandoverFormValues;

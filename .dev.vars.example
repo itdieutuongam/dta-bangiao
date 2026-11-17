@@ -45,3 +45,7 @@ STAFF_ACCESS_CODE=
 # để niêm phong toàn bộ biên bản lúc ký (nội dung, ý kiến người nhận, thời điểm, chữ ký) — KHÔNG lưu ở Google, nên người sửa được
 # Google Sheet không tự tính lại được niêm phong. Lưu giữ cẩn thận, KHÔNG đổi sau khi đã dùng (niêm phong cũ sẽ báo không khớp).
 RECORD_SEAL_SECRET=
+
+# (Tùy chọn, v2.1) handover_id các biên bản ký TRƯỚC khi đặt RECORD_SEAL_SECRET, cách nhau bởi dấu phẩy. Khi đã có khóa, biên bản
+# có mã nội dung mà thiếu niêm phong bị coi là ĐÃ BỊ SỬA (niêm phong bị xóa trên Sheet) — trừ các biên bản liệt kê ở đây.
+# SEAL_LEGACY_IDS=

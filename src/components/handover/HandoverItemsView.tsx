@@ -1,6 +1,9 @@
 import { ExternalLink } from 'lucide-react';
+import type { ReactNode } from 'react';
 import { ITEM_FIELD_KEYS, ITEM_FIELD_META, type ItemFieldKey } from '../../../shared/constants';
+import { isHttpUrl } from '../../../shared/text';
 import type { Category, CategoryField, HandoverItem } from '../../../shared/types';
+import { ISSUE_KIND_LABELS, UNIFORM_CATEGORY_CODE } from '../../../shared/uniform';
 import { formatDate } from '../../utils/format';
 
 /**
@@ -17,7 +20,8 @@ function fieldsFor(category: Category | undefined): CategoryField[] {
 }
 
 function DetailValue({ fieldKey, value }: { fieldKey: ItemFieldKey; value: string }) {
-  if (fieldKey === 'documentUrl') {
+  // Chỉ tạo link cho địa chỉ http(s) hợp lệ — giá trị bị sửa thẳng trên Sheet (bỏ qua kiểm tra khi nhập) hiện dạng chữ.
+  if (fieldKey === 'documentUrl' && isHttpUrl(value)) {
     return (
       <a
         href={value}
@@ -34,24 +38,31 @@ function DetailValue({ fieldKey, value }: { fieldKey: ItemFieldKey; value: strin
   return <span className="break-words whitespace-pre-wrap">{value}</span>;
 }
 
+/** Trường đã hiện ở dòng nhãn của dòng đồng phục (size / tình trạng / hình thức + hạn trả) — không lặp lại bên dưới. */
+const UNIFORM_SHOWN: ReadonlySet<ItemFieldKey> = new Set(['condition', 'deadline', 'assetCode']);
+
 /**
  * Danh sách nội dung bàn giao (chỉ đọc) — nội dung người dùng luôn render dạng text.
- * showInternal: hiện thêm thông tin nội bộ (lý do vượt định mức) — chỉ dùng ở trang quản trị.
+ * showInternal: hiện thêm thông tin nội bộ (lý do vượt định mức / tiêu chuẩn) — chỉ dùng ở trang quản trị.
+ * renderExtra: nội dung thêm cho từng dòng (ví dụ "đã trả x / n" của dòng đồng phục ở trang quản trị).
  */
 export function HandoverItemsView({
   items,
   categories,
   showInternal = false,
+  renderExtra,
 }: {
   items: HandoverItem[];
   categories: Category[];
   showInternal?: boolean;
+  renderExtra?: (item: HandoverItem) => ReactNode;
 }) {
   const byCode = new Map(categories.map((c) => [c.code, c]));
   return (
     <ol className="space-y-3">
       {items.map((item, index) => {
         const category = byCode.get(item.category);
+        const uniform = item.category === UNIFORM_CATEGORY_CODE;
         const fields = fieldsFor(category);
         const descriptionIsTitle = !item.itemName;
         const title = item.itemName || item.description;
@@ -60,6 +71,7 @@ export function HandoverItemsView({
           if (f.key === 'itemName' || f.key === 'quantity') return false;
           if (f.key === 'unit' && item.quantity !== null) return false;
           if (f.key === 'description' && descriptionIsTitle) return false;
+          if (uniform && UNIFORM_SHOWN.has(f.key)) return false;
           const value = item[f.key];
           return value !== null && value !== undefined && String(value).trim() !== '';
         });
@@ -74,15 +86,31 @@ export function HandoverItemsView({
               </span>
               {item.quantity !== null && (
                 <span className="rounded-full bg-stone-100 px-2 py-0.5 font-medium text-stone-700">
-                  SL: {item.quantity}
+                  SL: {item.quantity.toLocaleString('vi-VN')}
                   {item.unit ? ` ${item.unit}` : ''}
                 </span>
               )}
             </div>
             <p className="mt-2 font-semibold break-words whitespace-pre-wrap text-stone-900">{title}</p>
+            {uniform && (
+              <p className="mt-1.5 flex flex-wrap items-center gap-1.5 text-sm">
+                {item.size && (
+                  <span className="rounded-md bg-brand-50 px-2 py-0.5 font-bold text-brand-900 ring-1 ring-brand-200">Size {item.size}</span>
+                )}
+                {item.condition && <span className="rounded-md bg-stone-100 px-2 py-0.5 text-stone-700">{item.condition}</span>}
+                {item.issueKind === 'CHO_MUON' ? (
+                  <span className="rounded-md bg-sky-50 px-2 py-0.5 font-medium text-sky-900 ring-1 ring-sky-200">
+                    {ISSUE_KIND_LABELS.CHO_MUON}
+                    {item.deadline ? ` — hạn trả ${formatDate(item.deadline)}` : ''}
+                  </span>
+                ) : (
+                  item.issueKind && <span className="rounded-md bg-emerald-50 px-2 py-0.5 font-medium text-emerald-900">{ISSUE_KIND_LABELS.CAP_PHAT}</span>
+                )}
+              </p>
+            )}
             {showInternal && item.overNormReason && (
               <p className="mt-1.5 rounded-md bg-orange-50 px-2.5 py-1.5 text-sm break-words text-orange-900">
-                <span className="font-semibold">Lý do vượt định mức:</span> {item.overNormReason}
+                <span className="font-semibold">{uniform ? 'Lý do vượt tiêu chuẩn năm:' : 'Lý do vượt định mức:'}</span> {item.overNormReason}
               </p>
             )}
             {details.length > 0 && (
@@ -104,6 +132,7 @@ export function HandoverItemsView({
                 ))}
               </dl>
             )}
+            {renderExtra?.(item)}
           </li>
         );
       })}

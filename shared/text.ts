@@ -13,14 +13,52 @@ export function normalizeVietnamese(input: string): string {
     .trim();
 }
 
+/** Chuẩn hóa để dò mật khẩu: NFKC (dấu "：" "＝" full-width → ":" "="), bỏ dấu tiếng Việt, chữ thường. */
+function passwordScanText(input: string): string {
+  return normalizeVietnamese(input.normalize('NFKC'));
+}
+
+/** Mọi từ khóa — kể cả "pass", "pw" (cũng có nghĩa "chuyển giao"): chỉ tính khi NGAY SAU là ":" / "=". */
+const PASSWORD_KEY_ANY = /(?:^|[^a-z0-9])(?:password|passwd|passcode|pass|pwd|pw|mat khau|matkhau|mk)\s*[:=]\s*\S/;
+/** Từ khóa chắc chắn là mật khẩu — cho phép tối đa 2 từ chen giữa ("mật khẩu wifi: …", "mật khẩu mới = …") hoặc "là" / "is". */
+const PASSWORD_KEY_STRONG = /(?:^|[^a-z0-9])(?:password|passwd|passcode|pwd|mat khau|matkhau|mk)(?:\s+[a-z0-9]+){0,2}\s*(?:[:=]|\bla\b|\bis\b)\s*\S/;
+/** "MK 123456", "mật khẩu Abc@1234": từ khóa chắc chắn + một chuỗi ≥ 6 ký tự có chữ số (không phải ngày). */
+const PASSWORD_KEY_VALUE = /(?:^|[^a-z0-9])(?:password|passwd|pwd|mat khau|matkhau|mk)\s+(\S{6,})/g;
+const DATE_LIKE = /^\d{1,4}[/.-]\d{1,2}(?:[/.-]\d{1,4})?$/;
+/** Link chứa tài khoản: https://user:matkhau@host. */
+const URL_CREDENTIALS = /[a-z][a-z0-9+.-]*:\/\/[^\s/@:]+:[^\s/@]+@/;
+
 /**
- * Phát hiện chuỗi có dạng khai báo mật khẩu ("password: abc", "mật khẩu = 123", "MK: x").
- * Hệ thống tuyệt đối không lưu mật khẩu của tài khoản được bàn giao.
+ * Phát hiện chuỗi có dạng khai báo mật khẩu: "password: abc", "mật khẩu = 123", "MK: x", "mật khẩu là 123", "mật khẩu wifi：abc",
+ * "MK 123456", link "https://user:pw@host". Hệ thống tuyệt đối không lưu mật khẩu của tài khoản được bàn giao (biên bản đã ký
+ * không sửa / xóa được, link xác nhận không hết hạn). Khớp containsPasswordLike_ (Utils.gs).
  */
 export function containsPasswordLike(input: string): boolean {
   if (!input) return false;
-  const text = normalizeVietnamese(input);
-  return /(?:^|[^a-z0-9])(?:password|passwd|passcode|pass|pwd|pw|mat khau|matkhau|mk)\s*[:=]\s*\S/.test(text);
+  const text = passwordScanText(input);
+  if (PASSWORD_KEY_ANY.test(text) || PASSWORD_KEY_STRONG.test(text) || URL_CREDENTIALS.test(text)) return true;
+  for (const m of text.matchAll(PASSWORD_KEY_VALUE)) {
+    const value = m[1]!.replace(/[.,;)]+$/, '');
+    if (/\d/.test(value) && !DATE_LIKE.test(value)) return true;
+  }
+  return false;
+}
+
+const EMAIL_THEN_VALUE = /[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}\s*(?:[/|;,]|\s-\s)\s*(\S{4,})/g;
+const EMAIL_LIKE = /^[^@\s]+@[^@\s]+\.[a-z]{2,}$/;
+const PHONE_LIKE = /^(?:\+?84|0)\d{8,10}$/;
+
+/**
+ * Mục TÀI KHOẢN: cặp "email / mật khẩu" ("abc@dta.vn / Abc@123", "abc@dta.vn | 12345678") — dạng đã làm lộ mật khẩu ở dữ liệu thật.
+ * Bỏ qua khi phía sau là email khác hoặc số điện thoại. Khớp containsCredentialPair_ (Utils.gs).
+ */
+export function containsCredentialPair(input: string): boolean {
+  if (!input) return false;
+  for (const m of passwordScanText(input).matchAll(EMAIL_THEN_VALUE)) {
+    const value = m[1]!.replace(/[.,;)]+$/, '');
+    if (value.length >= 4 && !EMAIL_LIKE.test(value) && !PHONE_LIKE.test(value.replace(/[\s.-]/g, ''))) return true;
+  }
+  return false;
 }
 
 /**

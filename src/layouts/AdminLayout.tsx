@@ -9,12 +9,18 @@ import {
   ListChecks,
   LogOut,
   Menu,
+  PackageMinus,
+  PackagePlus,
   PackageSearch,
   RefreshCw,
+  Repeat,
   Ruler,
   Settings,
+  Shirt,
   ShoppingCart,
+  UserRound,
   Users,
+  Warehouse,
   X,
   type LucideIcon,
 } from 'lucide-react';
@@ -26,6 +32,7 @@ import { Button } from '../components/ui/Button';
 import { useModalDialog } from '../components/ui/modalLayer';
 import { ErrorState, Spinner } from '../components/ui/States';
 import { useToast } from '../components/ui/Toast';
+import { ADMIN_UNAUTHORIZED_EVENT, ReloadEpochContext } from '../hooks/reloadEpoch';
 import AdminLoginPage, { AdminLoginForm } from '../pages/admin/AdminLoginPage';
 import { adminBadges, adminLogout, adminMe, adminRefreshCache } from '../services/adminApi';
 import { errorMessage, isApiError } from '../services/api';
@@ -61,11 +68,26 @@ const NAV: Array<NavItem | NavGroup> = [
     ],
   },
   {
+    label: 'Đồng phục',
+    icon: Shirt,
+    items: [
+      { to: '/admin/dong-phuc', label: 'Tổng quan', icon: LayoutDashboard, end: true },
+      { to: '/admin/dong-phuc/ton-kho', label: 'Tồn kho & mẫu', icon: Warehouse },
+      { to: '/admin/dong-phuc/nhan-vien', label: 'Cấp phát theo NV', icon: UserRound },
+      { to: '/admin/dong-phuc/muon-tra', label: 'Mượn / Trả', icon: Repeat, badge: 'overdueUniformLoans', badgeLabel: 'đồ mượn quá hạn trả' },
+      { to: '/admin/dong-phuc/tieu-chuan', label: 'Tiêu chuẩn năm', icon: Ruler },
+      { to: '/admin/dong-phuc/lich-su', label: 'Lịch sử kho', icon: History },
+    ],
+  },
+  {
     label: 'Văn phòng phẩm',
     icon: Boxes,
     items: [
       { to: '/admin/vpp', label: 'Tổng quan', icon: LayoutDashboard, end: true },
       { to: '/admin/vpp/ton-kho', label: 'Tồn kho', icon: PackageSearch },
+      { to: '/admin/vpp/nhap-kho', label: 'Nhập kho', icon: PackagePlus },
+      { to: '/admin/vpp/xuat-kho', label: 'Xuất kho', icon: PackageMinus },
+      { to: '/admin/vpp/phieu-kho', label: 'Phiếu nhập / xuất', icon: ClipboardList },
       { to: '/admin/vpp/dinh-muc', label: 'Định mức', icon: Ruler },
       { to: '/admin/vpp/de-xuat', label: 'Đề xuất mua', icon: ShoppingCart, badge: 'submittedProposals', badgeLabel: 'đề xuất chờ duyệt' },
       { to: '/admin/vpp/lich-su', label: 'Lịch sử kho', icon: History },
@@ -150,6 +172,8 @@ export default function AdminLayout() {
   // Phiên hết hạn khi đang làm việc: hiện hộp thoại đăng nhập lại PHÍA TRÊN trang — trang (và dữ liệu đang nhập) được giữ.
   const [reauth, setReauth] = useState(false);
   const [badges, setBadges] = useState<AdminBadges | null>(null);
+  // Tăng sau khi đăng nhập lại / làm mới dữ liệu → các trang đang mở tự tải lại (ReloadEpochContext, useAsync).
+  const [reloadEpoch, setReloadEpoch] = useState(0);
   const badgesFetchedAt = useRef(0);
   const badgeRequest = useRef(0);
   const menuRef = useRef<HTMLDialogElement>(null);
@@ -224,21 +248,38 @@ export default function AdminLayout() {
     refreshBadges();
   }, [state, location.pathname, refreshBadges]);
 
+  // 401 từ BẤT KỲ API quản trị nào (kể cả trong hộp thoại) → hộp thoại đăng nhập lại (xếp trên hộp thoại đang mở).
+  useEffect(() => {
+    const onUnauthorized = (event: Event) => {
+      if (stateRef.current !== 'authenticated') return;
+      const mode = ((event as CustomEvent).detail as { loginMode?: unknown } | undefined)?.loginMode;
+      if (mode === 'users' || mode === 'shared') setLoginMode(mode);
+      setMenuOpen(false);
+      setReauth(true);
+    };
+    window.addEventListener(ADMIN_UNAUTHORIZED_EVENT, onUnauthorized);
+    return () => window.removeEventListener(ADMIN_UNAUTHORIZED_EVENT, onUnauthorized);
+  }, []);
+
+  /**
+   * Hàm ỔN ĐỊNH (không đổi khi đăng nhập lại): trước đây handleError được tạo lại mỗi khi user / cảnh báo đổi → mọi trang có effect
+   * "lỗi 401 → handleError" chạy lại ngay sau khi đăng nhập lại và mở lại hộp thoại đăng nhập — vòng lặp không thoát được.
+   */
+  const handleError = useCallback(
+    (error: unknown, fallback?: string) => {
+      if (isApiError(error) && error.status === 401) {
+        // Hộp thoại đăng nhập lại tự giải thích "phiên đã hết hạn" — không cần thêm thông báo.
+        showLogin(error);
+        return;
+      }
+      toast.show(errorMessage(error, fallback), 'error');
+    },
+    [toast, showLogin],
+  );
+
   const contextValue = useMemo<AdminContextValue>(
-    () => ({
-      user,
-      warnings,
-      refreshBadges,
-      handleError: (error, fallback) => {
-        if (isApiError(error) && error.status === 401) {
-          // Hộp thoại đăng nhập lại tự giải thích "phiên đã hết hạn" — không cần thêm thông báo.
-          showLogin(error);
-          return;
-        }
-        toast.show(errorMessage(error, fallback), 'error');
-      },
-    }),
-    [toast, user, warnings, refreshBadges, showLogin],
+    () => ({ user, warnings, refreshBadges, handleError }),
+    [user, warnings, refreshBadges, handleError],
   );
 
   async function handleLogout() {
@@ -262,6 +303,8 @@ export default function AdminLayout() {
     setRefreshing(true);
     try {
       const result = await adminRefreshCache();
+      // Trang đang mở tải lại danh sách (nhân viên, loại bàn giao…) — trước đây chỉ làm mới cache máy chủ, trang vẫn hiện số cũ.
+      setReloadEpoch((n) => n + 1);
       toast.show(`Đã làm mới dữ liệu: ${result.employees} nhân viên, ${result.categories} loại bàn giao.`);
     } catch (err) {
       contextValue.handleError(err, 'Không làm mới được dữ liệu.');
@@ -325,6 +368,7 @@ export default function AdminLayout() {
 
   return (
     <AdminContext value={contextValue}>
+      <ReloadEpochContext value={reloadEpoch}>
       <div className="flex min-h-dvh">
         <a
           href="#main"
@@ -414,6 +458,7 @@ export default function AdminLayout() {
                   if (session.mode) setLoginMode(session.mode);
                   setReauth(false);
                   refreshBadges();
+                  setReloadEpoch((n) => n + 1); // trang từng lỗi 401 tự tải lại
                   toast.show('Đã đăng nhập lại. Bấm lại nút lưu / gửi nếu thao tác vừa rồi chưa thực hiện được.', 'info');
                 }}
               />
@@ -440,6 +485,7 @@ export default function AdminLayout() {
           </main>
         </div>
       </div>
+      </ReloadEpochContext>
     </AdminContext>
   );
 }

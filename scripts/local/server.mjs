@@ -124,6 +124,7 @@ const emulator = await startGasEmulator({
   secret: gasSecret,
   quiet: true,
   vpp: !flag('--no-vpp'),
+  uniform: !flag('--no-uniform'),
   settings: { APP_URL: publicBase, CONFIRM_OTP: otpMode, NOTIFY_EMAILS: notifyEmails === 'none' ? '' : notifyEmails },
   onMail: (mail) => {
     mailbox.push(mail);
@@ -387,7 +388,7 @@ ${line}
    DEMO-103 Lê Hoàng Đức (Kinh doanh — có định mức VPP) · DEMO-104 Đỗ Thị Hương (Hành chính) · DEMO-105 Võ Minh Quân (IT)
    DEMO-106 Bùi Thanh Tâm (Marketing) · DEMO-107 Huỳnh Gia Bảo (đã nghỉ)
 
- Cấu hình: CONFIRM_OTP=${otpMode} · NOTIFY_EMAILS=${notifyEmails === 'none' ? '(trống)' : notifyEmails}${flag('--no-vpp') ? ' · không nạp dữ liệu VPP' : ' · đã nạp định mức + tồn đầu kỳ VPP'}
+ Cấu hình: CONFIRM_OTP=${otpMode} · NOTIFY_EMAILS=${notifyEmails === 'none' ? '(trống)' : notifyEmails}${flag('--no-vpp') ? ' · không nạp dữ liệu VPP' : ' · đã nạp định mức + tồn đầu kỳ VPP'}${flag('--no-uniform') ? ' · không nạp dữ liệu đồng phục' : ' · đã nạp 7 mẫu đồng phục + tồn mẫu'}
 ${lanIp ? ` Điện thoại cùng Wi-Fi mở: ${publicBase}  (card mạng: ${chosenLan.name}; sai card → chạy lại với --lan-ip <địa chỉ>;\n   không vào được → cho phép Node.js qua Windows Firewall)\n` : ''}${line}
 `);
 

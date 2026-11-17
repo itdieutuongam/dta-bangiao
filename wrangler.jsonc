@@ -23,8 +23,9 @@
 
   // Biến KHÔNG bí mật. APP_BASE_URL = domain dùng trong mọi link xác nhận (kể cả biên bản tạo từ địa chỉ workers.dev);
   // để trống = dùng domain của request hiện tại. Khi chạy local, dòng `APP_BASE_URL=` trong .dev.vars ghi đè giá trị này.
-  // Biến bí mật (GAS_WEB_APP_URL, GAS_SHARED_SECRET, ADMIN_PASSWORD, SESSION_SECRET,
-  // STAFF_ACCESS_CODE) cấu hình bằng `npx wrangler secret put <TÊN>` — không ghi vào file này.
+  // Biến bí mật (GAS_WEB_APP_URL, GAS_SHARED_SECRET, ADMIN_USERS hoặc ADMIN_PASSWORD, SESSION_SECRET,
+  // STAFF_ACCESS_CODE, RECORD_SEAL_SECRET, tùy chọn SEAL_LEGACY_IDS) cấu hình bằng `npx wrangler secret put <TÊN>`
+  // — không ghi vào file này. Danh sách đầy đủ + nơi lưu: docs/BAN_GIAO_HE_THONG.md §3.
   "vars": {
     "APP_BASE_URL": "https://bangiao.dieutuongam.com"
   },

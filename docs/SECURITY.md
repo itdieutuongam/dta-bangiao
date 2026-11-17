@@ -1,4 +1,4 @@
-# Bảo mật — DTA Handover v2
+# Bảo mật — DTA Handover v2.1
 
 ## 1. Tài sản cần bảo vệ & mối đe dọa chính
 
@@ -48,7 +48,9 @@
 - Định dạng token kiểm tra ở Worker (43 ký tự base64url) trước khi gọi Apps Script; Apps Script chặn IP (đã hash) sau
   30 lần tra link sai / 10 phút; xác nhận / yêu cầu chỉnh sửa tối đa 10 lần / 10 phút / biên bản.
 - Link là bearer token để **xem**; để **ký**, người nhận có email trong `NHAN_VIEN` phải nhập **mã xác nhận (OTP) gửi tới email
-  của chính họ** (`CAU_HINH.CONFIRM_OTP`, mục 4a) — người cầm link (kể cả người lập phiếu) không ký thay được. Thêm: chỉ quản trị
+  của chính họ** (`CAU_HINH.CONFIRM_OTP`, mục 4a) — người cầm link (kể cả người lập phiếu) không ký thay được. **Người nhận chưa có
+  email thì ở chế độ `EMAIL` link là đủ để ký** — v2.1 hiện tỷ lệ “nhân viên đang làm có email” ở *Tổng quan*, *Cài đặt*, *Kiểm tra
+  cấu hình* và in cách xác thực lên PDF; mục tiêu vận hành: đủ email rồi đặt `REQUIRED`. Thêm: chỉ quản trị
   viên đăng nhập mới tạo được phiếu (`created_by`); hệ thống ghi thời điểm, IP (hash), thiết bị, chữ ký và cách xác thực
   (`confirm_method`) khi xác nhận, **cảnh báo khi người nhận ký trên cùng thiết bị + mạng với lúc tạo phiếu** và khi ký không có mã;
   admin có thể **Tạo link mới** (vô hiệu link cũ); đổi người nhận khi sửa phiếu tự cấp link mới.
@@ -120,8 +122,10 @@ giới hạn tần suất); trang quản trị hiện cảnh báo. Link xác nh�
   độ dài, kiểu, ngày, URL, loại bàn giao, người nhận tồn tại & ACTIVE, trạng thái biên bản trong khóa).
 - Giới hạn độ dài: tên 120, ghi chú 2000, mô tả 2000, ghi chú nội dung 1000, ý kiến người nhận 1000, lý do hủy 500,
   tối đa 50 nội dung/biên bản, chữ ký ≤ 300KB và ≤ 1200×600.
-- **Mật khẩu tài khoản bàn giao:** không có trường mật khẩu; nội dung dạng `mật khẩu: …`, `password=…`, `MK: …` bị từ chối ở
-  cả frontend, Worker và Apps Script.
+- **Mật khẩu tài khoản bàn giao:** không có trường mật khẩu; bị từ chối ở cả frontend, Worker và Apps Script (cùng quy tắc, có test
+  đối chiếu): `mật khẩu: …`, `password=…`, `MK: …`, *(v2.1)* `mật khẩu là …`, `mật khẩu wifi：…` (dấu full-width), `password is …`,
+  `MK 123456`, link `https://user:pw@host` / `…?pwd=…`; mục **Tài khoản** thêm cặp `email / mật khẩu`. Áp dụng cho mọi ô nội dung, link
+  tài liệu, ghi chú phiếu, ghi chú khi ký và lý do yêu cầu sửa (biên bản đã ký không xóa được nội dung — chặn trước khi lưu).
 
 ## 7. Quyền riêng tư & log
 
@@ -142,6 +146,8 @@ Không log: mật khẩu, secret, token đầy đủ, base64 chữ ký, body req
 | Apps Script (CacheService) | Dò link: 30 lần sai / 10 phút / IP-hash; xác nhận & chỉnh sửa: 10 / 10 phút / **biên bản**; mã OTP: gửi lại sau 60 giây, 3 lần / 15 phút, 10 lần / biên bản, sai 5 lần / mã; tải PDF: 20 / 10 phút / biên bản; đề xuất VPP: 10 / ngày / **nhân viên** + 60 / giờ / IP-hash; tra mã NV: 150 / 10 phút / IP-hash, tra **sai** 20 / 10 phút / IP-hash |
 
 Ngưỡng theo IP đặt rộng vì cả văn phòng thường đi ra Internet qua **một IP (NAT)**; giới hạn chính theo token / nhân viên / username.
+*(v2.1)* Ký / yêu cầu sửa tra link **trước** khi giữ khóa toàn cục (`LockService`): link bịa không chiếm khóa của mọi thao tác ghi khác
+và bị tính vào giới hạn dò link 30 lần sai / 10 phút / IP-hash như trang xem link.
 IPv6 tính theo **dải /64** ở mọi lớp (IP-hash gửi Apps Script cũng băm theo dải /64): đổi địa chỉ trong cùng dải không né được giới
 hạn, và cảnh báo “ký trên cùng thiết bị” không bị lỡ khi địa chỉ IPv6 tạm thời đổi.
 
@@ -156,8 +162,10 @@ hạn, và cảnh báo “ký trên cùng thiết bị” không bị lỡ khi �
   - `record_hash`: toàn biên bản — mã / thời điểm lập, thời điểm ký, ý kiến người nhận, cách xác thực, mã băm + file chữ ký;
   - `record_seal` = HMAC(`record_hash`) bằng khóa Worker suy ra từ `RECORD_SEAL_SECRET` và gửi kèm từng request — khóa **không**
     lưu ở Apps Script / Sheet, nên người sửa được Sheet (kể cả xem được Script Properties, biết thuật toán băm) không tự tính lại
-    được niêm phong. Worker không có khóa → “chưa kiểm tra được niêm phong” (không báo sai); ký khi chưa cấu hình → không có niêm
-    phong (vẫn có `record_hash`).
+    được niêm phong. Worker không có khóa → “chưa kiểm tra được niêm phong” (không báo sai). *(v2.1)* Worker **có** khóa mà biên bản
+    có mã nội dung lại thiếu niêm phong → `MISSING` = **không khớp** (người sửa Sheet xóa niêm phong + tự tính lại `content_hash` để
+    “hợp thức hóa” dữ liệu đã sửa); ngoại lệ: biên bản ký trước khi đặt khóa, khai báo ở biến Cloudflare `SEAL_LEGACY_IDS` (không nằm
+    trên Sheet / Apps Script).
 - Sửa phiếu theo **phiên bản nội dung** (`items_revision` / `revision_id`, dấu `edit_pending`): lỗi giữa chừng không bao giờ để người
   nhận thấy / ký nội dung lẫn cũ – mới; đổi người nhận → link mới được ghi trước, người nhận cũ không ký được nội dung mới.
 - Gửi lại cùng mã thao tác (`clientRequestId`) với nội dung khác → `409 REQUEST_REUSED` nêu bản ghi đã lưu — không trả bản cũ như

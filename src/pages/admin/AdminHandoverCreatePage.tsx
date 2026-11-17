@@ -9,7 +9,9 @@ import { HandoverTypePicker } from '../../components/handover/HandoverTypePicker
 import { Button, ButtonLink } from '../../components/ui/Button';
 import { PageHeader } from '../../components/ui/PageHeader';
 import { ErrorState, LoadingCard } from '../../components/ui/States';
-import { VppHandoverForm } from '../../components/vpp/VppHandoverForm';
+import { UniformHandoverForm } from '../../components/uniform/UniformHandoverForm';
+import { takeVppPrefill } from '../../components/vpp/prefill';
+import { newVppLine, VppHandoverForm } from '../../components/vpp/VppHandoverForm';
 import { useAsync } from '../../hooks/useAsync';
 import { useDocumentTitle } from '../../hooks/usePageMeta';
 import { useAdmin } from '../../layouts/adminContext';
@@ -33,7 +35,11 @@ export default function AdminHandoverCreatePage() {
   const { handleError, refreshBadges } = useAdmin();
   const [params, setParams] = useSearchParams();
   const preset = params.get('loai');
+  // ?nhan=<mã NV>: chọn sẵn người nhận (ví dụ nút "Cấp đồng phục" ở trang Đồng phục → Cấp phát theo NV).
+  const presetReceiverId = params.get('nhan') ?? '';
   const [type, setType] = useState<HandoverType | null>(isHandoverType(preset) ? preset : null);
+  // ?prefill=1 (từ trang Xuất kho VPP): mặt hàng + số lượng đã chọn → điền sẵn phiếu văn phòng phẩm (đọc một lần).
+  const [vppPrefill] = useState(() => (preset === 'OFFICE_SUPPLY' && params.get('prefill') === '1' ? takeVppPrefill() : null));
   const [created, setCreated] = useState<CreateHandoverResult | null>(null);
   const [formKey, setFormKey] = useState(0);
   // Một mã chống gửi trùng cho mỗi lần điền form: gửi lại (mạng chập chờn) không tạo phiếu thứ hai.
@@ -53,7 +59,7 @@ export default function AdminHandoverCreatePage() {
     setType(next);
     setFormKey((k) => k + 1);
     requestId.current = newRequestId();
-    setParams(next ? { loai: next } : {}, { replace: true });
+    setParams(next ? (presetReceiverId ? { loai: next, nhan: presetReceiverId } : { loai: next }) : {}, { replace: true });
     window.scrollTo({ top: 0 });
   }
 
@@ -151,17 +157,49 @@ export default function AdminHandoverCreatePage() {
         <ErrorState title="Không thể tải danh sách nhân viên." error={catalog.error} onRetry={catalog.reload} />
       )}
 
-      {type && catalog.data && type === 'OFFICE_SUPPLY' && (
-        <VppHandoverForm
+      {type && catalog.data && type === 'UNIFORM' && (
+        <UniformHandoverForm
           key={formKey}
           employees={catalog.data.employees}
+          initialValues={
+            presetReceiverId
+              ? {
+                  senderName: '',
+                  senderEmployee: null,
+                  receiver: catalog.data.employees.find((e) => e.employeeId.toUpperCase() === presetReceiverId.toUpperCase()) ?? null,
+                  note: '',
+                  lines: [],
+                }
+              : undefined
+          }
           submitLabel="TẠO PHIẾU"
           submitIcon={<FilePlus2 className="size-5" aria-hidden="true" />}
           onSubmit={submit}
           submitErrorActions={reusedActions}
         />
       )}
-      {type && catalog.data && type !== 'OFFICE_SUPPLY' && (
+      {type && catalog.data && type === 'OFFICE_SUPPLY' && (
+        <VppHandoverForm
+          key={formKey}
+          employees={catalog.data.employees}
+          initialValues={
+            vppPrefill && formKey === 0
+              ? {
+                  senderName: '',
+                  senderEmployee: null,
+                  receiver: catalog.data.employees.find((e) => e.employeeId === vppPrefill.receiverEmployeeId) ?? null,
+                  note: '',
+                  lines: vppPrefill.lines.map((l) => newVppLine(l.productId, l.quantity)),
+                }
+              : undefined
+          }
+          submitLabel="TẠO PHIẾU"
+          submitIcon={<FilePlus2 className="size-5" aria-hidden="true" />}
+          onSubmit={submit}
+          submitErrorActions={reusedActions}
+        />
+      )}
+      {type && catalog.data && type !== 'OFFICE_SUPPLY' && type !== 'UNIFORM' && (
         <HandoverForm
           key={formKey}
           handoverType={type}
