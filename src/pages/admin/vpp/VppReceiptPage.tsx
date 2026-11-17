@@ -265,7 +265,7 @@ export default function VppReceiptPage() {
             {lines.length === 0 ? (
               <p className="rounded-lg border border-dashed border-stone-300 p-4 text-center text-sm text-stone-500">
                 <CheckSquare className="mx-auto mb-1 size-5 text-stone-400" aria-hidden="true" />
-                Tích chọn mặt hàng ở danh sách bên cạnh.
+                Tích chọn mặt hàng trong danh sách “Chọn mặt hàng”.
               </p>
             ) : (
               <ol className="space-y-2">

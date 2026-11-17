@@ -838,4 +838,34 @@ describe('Apps Script – tiện ích quản trị', () => {
     expect(env.rt.run('backupNow')).toContain('Đã sao lưu');
     expect(env.rt.run('installWeeklyBackupTrigger')).toContain('Chủ nhật');
   });
+
+  it('[SỰ CỐ 17/11/2026] Sheet / thư mục dữ liệu chia sẻ bằng đường liên kết → Kiểm tra cấu hình ✗ + mục cần xử lý ở trang Cài đặt', () => {
+    const env = setupGas();
+    const sheetFile = env.rt.drive.getFileById(env.rt.spreadsheet.getId());
+    expect(env.admin('adminSystemInfo').data.pendingChanges.join('\n')).not.toContain('chia sẻ');
+
+    // "Bất kỳ ai có đường liên kết – Người chỉnh sửa" (trạng thái production lúc phát hiện)
+    sheetFile.setSharing('ANYONE_WITH_LINK', 'EDIT');
+    const report = env.rt.run('checkSetup') as string;
+    expect(report).toMatch(/✗ Google Sheet dữ liệu đang chia sẻ cho bất kỳ ai có đường liên kết với quyền CHỈNH SỬA/);
+    expect(report).toContain('đọc được khóa kết nối');
+    expect(report).toContain('Còn mục cần xử lý');
+    const pending = env.admin('adminSystemInfo').data.pendingChanges as string[];
+    expect(pending[0]).toMatch(/^Google Sheet dữ liệu đang chia sẻ .* CHỈNH SỬA .*"Bị hạn chế", rồi đổi khóa kết nối/);
+
+    // Chỉ xem qua link: vẫn cảnh báo (lộ dữ liệu) nhưng không chặn kết quả kiểm tra
+    sheetFile.setSharing('ANYONE_WITH_LINK', 'VIEW');
+    const viewOnly = env.rt.run('checkSetup') as string;
+    expect(viewOnly).toMatch(/⚠ Google Sheet dữ liệu .* quyền xem — người có link xem được dữ liệu/);
+    expect(viewOnly).toContain('Cấu hình hợp lệ');
+
+    // Chia sẻ trong tổ chức chỉ xem: chấp nhận; thư mục PDF / chữ ký sửa được qua link: báo
+    sheetFile.setSharing('DOMAIN_WITH_LINK', 'VIEW');
+    const folderId = env.rt.properties.DRIVE_FOLDER_ID;
+    env.rt.drive.getFolderById(folderId).setSharing('ANYONE', 'EDIT');
+    const folderReport = env.rt.run('checkSetup') as string;
+    expect(folderReport).not.toContain('Google Sheet dữ liệu đang chia sẻ');
+    expect(folderReport).toMatch(/✗ Thư mục Drive DTA_HANDOVER \(PDF, chữ ký\) đang chia sẻ cho công khai trên web với quyền CHỈNH SỬA/);
+    expect(folderReport).not.toContain('đổi khóa kết nối (menu');
+  });
 });

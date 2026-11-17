@@ -1,57 +1,13 @@
 import fs from 'node:fs';
-import zlib from 'node:zlib';
 import { describe, expect, it } from 'vitest';
 import { findSheetName, isUniformLike, parseVppWorkbook, type SheetCell } from '../shared/vppImport';
 import { readXlsx, XlsxError } from '../src/utils/xlsx';
+import { buildXlsx, zip } from './xlsxFixture';
 
 /**
  * Cập nhật văn phòng phẩm từ Excel — phía trình duyệt: đọc .xlsx (ZIP + XML, không thư viện ngoài) và chuẩn hóa sheet
  * "Danh muc" + "Ton kho" (mã trùng / không hợp lệ, dòng #REF!, tồn của mã dùng chung, dòng đồng phục).
  */
-
-/** Dựng tệp ZIP tối giản (mục nén deflate hoặc lưu thẳng) — đủ để thử bộ đọc .xlsx. */
-function zip(files: Array<{ name: string; text: string; store?: boolean }>): Uint8Array {
-  const locals: Buffer[] = [];
-  const centrals: Buffer[] = [];
-  let offset = 0;
-  for (const f of files) {
-    const raw = Buffer.from(f.text, 'utf8');
-    const data = f.store ? raw : zlib.deflateRawSync(raw);
-    const name = Buffer.from(f.name, 'utf8');
-    const crc = zlib.crc32(raw);
-    const local = Buffer.alloc(30);
-    local.writeUInt32LE(0x04034b50, 0);
-    local.writeUInt16LE(20, 4);
-    local.writeUInt16LE(0x0800, 6);
-    local.writeUInt16LE(f.store ? 0 : 8, 8);
-    local.writeUInt32LE(crc, 14);
-    local.writeUInt32LE(data.length, 18);
-    local.writeUInt32LE(raw.length, 22);
-    local.writeUInt16LE(name.length, 26);
-    locals.push(local, name, data);
-    const central = Buffer.alloc(46);
-    central.writeUInt32LE(0x02014b50, 0);
-    central.writeUInt16LE(20, 4);
-    central.writeUInt16LE(20, 6);
-    central.writeUInt16LE(0x0800, 8);
-    central.writeUInt16LE(f.store ? 0 : 8, 10);
-    central.writeUInt32LE(crc, 16);
-    central.writeUInt32LE(data.length, 20);
-    central.writeUInt32LE(raw.length, 24);
-    central.writeUInt16LE(name.length, 28);
-    central.writeUInt32LE(offset, 42);
-    centrals.push(central, name);
-    offset += local.length + name.length + data.length;
-  }
-  const dir = Buffer.concat(centrals);
-  const end = Buffer.alloc(22);
-  end.writeUInt32LE(0x06054b50, 0);
-  end.writeUInt16LE(files.length, 8);
-  end.writeUInt16LE(files.length, 10);
-  end.writeUInt32LE(dir.length, 12);
-  end.writeUInt32LE(offset, 16);
-  return new Uint8Array(Buffer.concat([...locals, dir, end]));
-}
 
 const WORKBOOK = `<?xml version="1.0" encoding="UTF-8"?>
 <workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
@@ -95,6 +51,21 @@ describe('Đọc tệp .xlsx trên trình duyệt (không thư viện ngoài)', 
     expect(await wb.readSheet('Ton kho')).toEqual([]);
     expect(await wb.readSheet('Không có')).toBeNull();
     expect((await wb.readSheet('Huong dan'))![0]).toEqual(['Hướng dẫn']);
+  });
+
+  it('tệp dựng bằng buildXlsx (dùng cho e2e) đọc đúng: tên sheet, chuỗi có dấu / ký tự đặc biệt, số, ô trống', async () => {
+    const wb = await readXlsx(
+      buildXlsx([
+        { name: 'Danh muc', rows: [['MÃ', 'TÊN HÀNG HÓA'], ['A-1', 'Bìa "lá" <A4> & kẹp', null, 12000]] },
+        { name: 'Ton kho', rows: [] },
+      ]),
+    );
+    expect(wb.sheetNames).toEqual(['Danh muc', 'Ton kho']);
+    expect(await wb.readSheet('Danh muc')).toEqual([
+      ['MÃ', 'TÊN HÀNG HÓA'],
+      ['A-1', 'Bìa "lá" <A4> & kẹp', null, 12000],
+    ]);
+    expect(await wb.readSheet('Ton kho')).toEqual([]);
   });
 
   it('tệp không phải .xlsx → báo lỗi dễ hiểu', async () => {

@@ -23,7 +23,7 @@ Pages, secret), **GitHub** (mã nguồn `itdieutuongam/dta-bangiao`). Không có
 
 | Tài sản | Ở đâu | Hiện trạng (11/2026) | Mục tiêu |
 |---|---|---|---|
-| Google Sheet dữ liệu | Google Drive | Thuộc **tài khoản Google cá nhân** của người phụ trách IT | Thuộc tài khoản / Shared Drive của công ty |
+| Google Sheet dữ liệu | Google Drive | Thuộc **tài khoản Google cá nhân** của người phụ trách IT; ngày 17/11/2026 đang chia sẻ **“Bất kỳ ai có đường liên kết – Người chỉnh sửa”** (SEC-0) | Thuộc tài khoản / Shared Drive của công ty; quyền truy cập chung **“Bị hạn chế”**, chỉ người được thêm đích danh (*Kiểm tra cấu hình* báo ✗ nếu chia sẻ bằng link) |
 | Thư mục `DTA_HANDOVER` (chữ ký, PDF, `backups/`) | Google Drive của chủ Sheet | Như trên | Như trên |
 | Dự án Apps Script (gắn với Sheet) | Sheet → Tiện ích mở rộng → Apps Script | Như trên; Web App “Thực thi với tư cách: tôi” → mọi quyền đọc / ghi và email gửi đi là của tài khoản này | Tài khoản công ty triển khai |
 | Trigger (sao lưu hằng tuần, email tổng hợp) | Apps Script → Trình kích hoạt | Chạy bằng tài khoản đã cài | Cài lại bằng tài khoản công ty |
@@ -79,7 +79,7 @@ Sau khi sửa Sheet: nút **Làm mới dữ liệu** cuối menu quản trị.
   Đổi cấu trúc Sheet → tăng `APP.SCHEMA_VERSION` + thêm bước vào `ensureSchemaV2_` (chỉ thêm, không xóa / đổi tên cột).
 - **Chạy thử không cần Google / Cloudflare**: `npm run local` (Worker thật + Apps Script giả lập + hộp thư giả lập, có sẵn dữ liệu
   mẫu VPP và đồng phục). Đây là “staging” duy nhất hiện có — chạy trước mỗi lần phát hành.
-- Kiểm thử: `npm run verify` (typecheck + lint + 268 test); `npm run test:e2e` (trình duyệt thật, cần Chrome / Edge).
+- Kiểm thử: `npm run verify` (typecheck + lint + 271 test); `npm run test:e2e` (trình duyệt thật, cần Chrome / Edge).
 - Apps Script chạy trong bộ giả lập `scripts/gas-emulator/` — giống Google ở các hành vi quan trọng nhưng **không phải** Google thật;
   thay đổi lớn cần thử trên một bản sao Sheet (§6.3) trước khi đưa lên dữ liệu thật.
 

@@ -607,9 +607,23 @@ class SpreadsheetMock {
 
 // ---------------------------------------------------------------- Drive
 
+/** Chia sẻ của file / thư mục (DriveApp.Access / DriveApp.Permission) — mặc định riêng tư như file mới tạo. */
+const sharingMethods = {
+  getSharingAccess() {
+    return this.sharing.access;
+  },
+  getSharingPermission() {
+    return this.sharing.permission;
+  },
+  setSharing(access, permission) {
+    this.sharing = { access, permission };
+    return this;
+  },
+};
+
 class FileMock {
   constructor(drive, id, name, parent, blob) {
-    Object.assign(this, { drive, id, name, parent, trashed: false });
+    Object.assign(this, { drive, id, name, parent, trashed: false, sharing: { access: 'PRIVATE', permission: 'NONE' } });
     this.bytes = blob ? Buffer.from(blob._bytes) : Buffer.alloc(0);
     this.mime = blob ? blob.getContentType() : 'application/octet-stream';
   }
@@ -651,6 +665,8 @@ class FileMock {
   }
 }
 
+Object.assign(FileMock.prototype, sharingMethods);
+
 function iterator(list) {
   let i = 0;
   return { hasNext: () => i < list.length, next: () => list[i++] };
@@ -658,7 +674,7 @@ function iterator(list) {
 
 class FolderMock {
   constructor(drive, id, name, parent) {
-    Object.assign(this, { drive, id, name, parent, trashed: false });
+    Object.assign(this, { drive, id, name, parent, trashed: false, sharing: { access: 'PRIVATE', permission: 'NONE' } });
   }
   getId() {
     return this.id;
@@ -695,6 +711,8 @@ class FolderMock {
     return file;
   }
 }
+
+Object.assign(FolderMock.prototype, sharingMethods);
 
 class DriveMock {
   constructor(runtime) {
@@ -829,6 +847,16 @@ export function createGasRuntime(options) {
       },
     },
     DriveApp: {
+      Access: { ANYONE: 'ANYONE', ANYONE_WITH_LINK: 'ANYONE_WITH_LINK', DOMAIN: 'DOMAIN', DOMAIN_WITH_LINK: 'DOMAIN_WITH_LINK', PRIVATE: 'PRIVATE' },
+      Permission: {
+        VIEW: 'VIEW',
+        EDIT: 'EDIT',
+        COMMENT: 'COMMENT',
+        OWNER: 'OWNER',
+        ORGANIZER: 'ORGANIZER',
+        FILE_ORGANIZER: 'FILE_ORGANIZER',
+        NONE: 'NONE',
+      },
       getRootFolder: () => drive.getRootFolder(),
       createFolder: (name) => drive.createFolder(name),
       getFolderById: (id) => drive.getFolderById(id),

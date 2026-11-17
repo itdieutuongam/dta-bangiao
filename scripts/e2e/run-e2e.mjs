@@ -91,8 +91,9 @@ async function main() {
   const secret = crypto.randomBytes(32).toString('hex');
   const adminPassword = `E2E-${crypto.randomBytes(9).toString('base64url')}`;
   const staffCode = `NV-${crypto.randomBytes(6).toString('base64url')}`;
-  // Có dữ liệu văn phòng phẩm như sau khi chủ Sheet chạy "Khởi tạo định mức" + "Nhập tồn đầu kỳ".
-  const emulator = await startGasEmulator({ port: Number(process.env.E2E_EMULATOR_PORT ?? 0), secret, quiet: true, vpp: true });
+  // Có dữ liệu văn phòng phẩm như sau khi chủ Sheet chạy "Khởi tạo định mức" + "Nhập tồn đầu kỳ", và danh mục đồng phục
+  // ("Khởi tạo danh mục đồng phục") + tồn / size mẫu cho nhân viên DEMO-.
+  const emulator = await startGasEmulator({ port: Number(process.env.E2E_EMULATOR_PORT ?? 0), secret, quiet: true, vpp: true, uniform: true });
   log(`Apps Script giả lập: ${emulator.url}`);
 
   const vars = {

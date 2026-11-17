@@ -258,6 +258,13 @@ function apiAdminSystemInfo_() {
     info.driveFolderUrl = '';
     info.pendingChanges.push('Không mở được thư mục Drive DTA_HANDOVER: ' + e.message);
   }
+  // Sheet / thư mục dữ liệu chia sẻ bằng đường liên kết (sự cố 17/11/2026) — báo ngay đầu danh sách cần xử lý.
+  try {
+    var sharing = publicSharingProblems_(getSpreadsheet_()).map(function (p) { return p.message; });
+    info.pendingChanges = sharing.concat(info.pendingChanges);
+  } catch (e) {
+    logError_('system.sharing', e);
+  }
   // Email (mã OTP, thông báo): số người nhận thông báo, lỗi gửi gần nhất, hạn mức còn lại / chưa cấp quyền gửi mail.
   // Trang Cài đặt là trang chẩn đoán: lỗi đọc CAU_HINH hiện thành mục cần xử lý, không làm hỏng cả trang.
   var settingsError = '';

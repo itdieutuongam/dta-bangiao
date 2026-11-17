@@ -222,6 +222,49 @@ function ensureDriveStructure_() {
 }
 
 /** Kiểm tra cấu hình hiện tại. Không in giá trị secret. */
+/**
+ * Google Sheet dữ liệu / thư mục DTA_HANDOVER đang chia sẻ bằng đường liên kết hoặc cho cả tổ chức với quyền sửa (sự cố 17/11/2026: Sheet
+ * để "Bất kỳ ai có đường liên kết – Người chỉnh sửa"). Hệ thống KHÔNG cần chia sẻ — Web App chạy bằng tài khoản chủ sở hữu. Quyền sửa
+ * Sheet còn cho người đó mở Apps Script gắn với Sheet (xem được BACKEND_SHARED_SECRET trong Thuộc tính tập lệnh).
+ * Trả về [{ severe, message }]: severe = có quyền sửa. Chia sẻ trong tổ chức chỉ xem: không báo.
+ */
+function publicSharingProblems_(ss) {
+  var targets = [
+    {
+      label: 'Google Sheet dữ liệu',
+      editRisk: 'xem / sửa / xóa được mọi dữ liệu và mở được Apps Script gắn với Sheet (đọc được khóa kết nối)',
+      get: function () { return DriveApp.getFileById(ss.getId()); }
+    },
+    {
+      label: 'Thư mục Drive DTA_HANDOVER (PDF, chữ ký)',
+      editRisk: 'xem / sửa / xóa được PDF và ảnh chữ ký',
+      get: function () { return getRootFolder_(); }
+    }
+  ];
+  var problems = [];
+  targets.forEach(function (t, i) {
+    try {
+      var item = t.get();
+      var access = String(item.getSharingAccess());
+      if (access === 'PRIVATE') return;
+      var permission = String(item.getSharingPermission());
+      var canEdit = ['EDIT', 'OWNER', 'ORGANIZER', 'FILE_ORGANIZER'].indexOf(permission) >= 0;
+      var anyone = access === 'ANYONE' || access === 'ANYONE_WITH_LINK';
+      if (!anyone && !canEdit) return;
+      var who = !anyone ? 'mọi người trong tổ chức' : access === 'ANYONE' ? 'công khai trên web' : 'bất kỳ ai có đường liên kết';
+      problems.push({
+        severe: canEdit,
+        message: t.label + ' đang chia sẻ cho ' + who + ' với quyền ' + (canEdit ? 'CHỈNH SỬA' : permission === 'COMMENT' ? 'nhận xét' : 'xem') +
+          ' — người có link ' + (canEdit ? t.editRisk : 'xem được dữ liệu') + '. Sửa: Chia sẻ → Quyền truy cập chung → "Bị hạn chế"' +
+          (canEdit && i === 0 ? ', rồi đổi khóa kết nối (menu "Nhập / đổi khóa kết nối" + GAS_SHARED_SECRET bên Cloudflare).' : '.')
+      });
+    } catch (e) {
+      logError_('system.sharing', e);
+    }
+  });
+  return problems;
+}
+
 function checkSetup() {
   var lines = [];
   var ok = true;
@@ -300,6 +343,11 @@ function checkSetup() {
     idColumnProblems_(ss).forEach(function (p) {
       ok = false;
       lines.push('✗ ' + p);
+    });
+    // Sheet / thư mục dữ liệu chia sẻ bằng đường liên kết (sự cố 17/11/2026) — quyền sửa = ✗.
+    publicSharingProblems_(ss).forEach(function (p) {
+      if (p.severe) ok = false;
+      lines.push((p.severe ? '✗ ' : '⚠ ') + p.message);
     });
   } catch (e) {
     ok = false;

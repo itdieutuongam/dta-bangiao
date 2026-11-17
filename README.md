@@ -419,7 +419,7 @@ Apps Script → *Executions*.
 ## Kiểm thử
 
 ```bash
-npm test            # 268 test: validation, crypto, session, router, CSV, API Worker ⇄ Apps Script (giả lập), mã OTP, email, kho VPP, đồng phục, niêm phong, bộ lọc mật khẩu, quyền, bản gộp 1 file
+npm test            # 271 test: validation, crypto, session, router, CSV, API Worker ⇄ Apps Script (giả lập), mã OTP, email, kho VPP, đồng phục, niêm phong, bộ lọc mật khẩu, quyền, bản gộp 1 file
 npm run test:e2e    # 25 test trên trình duyệt thật (kể cả ký có mã OTP) — cần Chrome hoặc Edge
 ```
 

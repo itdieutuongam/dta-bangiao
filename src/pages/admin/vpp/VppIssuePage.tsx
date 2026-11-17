@@ -67,7 +67,7 @@ export default function VppIssuePage() {
   const [done, setDone] = useState<{ voucher: StockVoucher; warnings: StockWarning[]; duplicate: boolean } | null>(null);
   // Lần gửi lỗi chưa rõ kết quả (mất mạng…) → gửi lại CÙNG mã thao tác nếu nội dung không đổi (máy chủ không xuất 2 lần).
   const pending = useRef<{ id: string; key: string } | null>(null);
-  useUnsavedChangesWarning(lines.length > 0 && !done && !submitting);
+  const allowLeave = useUnsavedChangesWarning(lines.length > 0 && !done && !submitting);
 
   const products = useMemo(() => (data.data?.products ?? []).filter(usable), [data.data]);
   const byId = useMemo(() => new Map(products.map((p) => [p.productId, p])), [products]);
@@ -151,6 +151,7 @@ export default function VppIssuePage() {
 
   function toHandover() {
     saveVppPrefill({ lines: lines.map((l) => ({ productId: l.productId, quantity: l.quantity })), receiverEmployeeId: receiver?.employeeId ?? '' });
+    allowLeave(); // các mặt hàng được mang sang form phiếu bàn giao — không hỏi "chưa được lưu sẽ bị mất"
     navigate('/admin/ban-giao/tao-moi?loai=OFFICE_SUPPLY&prefill=1');
   }
 
@@ -316,7 +317,7 @@ export default function VppIssuePage() {
             {lines.length === 0 ? (
               <p className="rounded-lg border border-dashed border-stone-300 p-4 text-center text-sm text-stone-500">
                 <CheckSquare className="mx-auto mb-1 size-5 text-stone-400" aria-hidden="true" />
-                Tích chọn mặt hàng ở danh sách bên cạnh.
+                Tích chọn mặt hàng trong danh sách “Chọn mặt hàng”.
               </p>
             ) : (
               <ol className="space-y-2">

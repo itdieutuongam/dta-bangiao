@@ -11,16 +11,20 @@ Trạng thái: ✅ đã sửa trong v2.1 · 🟡 sửa một phần · 🛠 vi�
 
 | Mức | Số phát hiện | ✅ | 🟡 | 🛠 / ⏳ |
 |---|---|---|---|---|
-| P0 | 1 | 0 | 0 | 1 |
+| P0 | 2 | 0 | 1 | 1 |
 | P1 | 21 | 12 | 3 | 6 |
 | P2 | 17 | 7 | 6 | 4 |
 | P3 | 21 | 3 | 2 | 16 |
-| **Cộng** | **60** | **22** | **11** | **27** |
+| **Cộng** | **61** | **22** | **12** | **27** |
 
 (Đếm theo mã phát hiện của từng nhóm rà soát — một số mã trùng nội dung giữa các nhóm, ví dụ SEC-1 = GAS-2, OPS-3 = GAS-1.)
 
-Năm vấn đề quan trọng nhất (đều đang xảy ra trên dữ liệu thật trước v2.1):
+Sáu vấn đề quan trọng nhất (đều đang xảy ra trên dữ liệu thật trước v2.1):
 
+0. **Google Sheet dữ liệu chia sẻ “Bất kỳ ai có đường liên kết – Người chỉnh sửa”** (phát hiện 17/11/2026 khi triển khai, SEC-0) —
+   ai có link xem / sửa / xóa được mọi dữ liệu (kể cả biên bản có mật khẩu bị lộ), người đăng nhập Google bất kỳ có link còn mở được
+   Apps Script gắn với Sheet và đọc `BACKEND_SHARED_SECRET`. → v2.1 tự phát hiện (✗ ở *Kiểm tra cấu hình*, mục cần xử lý đầu tiên ở
+   *Cài đặt*); **phải khóa chia sẻ (“Bị hạn chế”) và đổi khóa kết nối**. Thư mục DTA_HANDOVER (PDF, chữ ký) vẫn riêng tư.
 1. **Mã xác nhận khi ký không bảo vệ ai** — 0/47 nhân viên có email nên mọi chữ ký đi đường “không cần mã”: người cầm link (kể cả
    người lập phiếu) ký thay được. → v2.1 cảnh báo rõ ở *Tổng quan*, *Cài đặt*, *Kiểm tra cấu hình*, in cách xác thực lên PDF;
    **cần bổ sung email rồi bật `CONFIRM_OTP = REQUIRED`**.
@@ -65,6 +69,7 @@ Năm vấn đề quan trọng nhất (đều đang xảy ra trên dữ liệu th
 
 | ID | Mức | Vấn đề | Trạng thái |
 |---|---|---|---|
+| SEC-0 | P0 | Sheet dữ liệu chia sẻ “Bất kỳ ai có đường liên kết – Người chỉnh sửa”: lộ + sửa / xóa được toàn bộ dữ liệu, mở được Apps Script (đọc khóa kết nối) — xem §1 | 🟡 v2.1 tự kiểm tra chia sẻ Sheet + thư mục DTA_HANDOVER (*Kiểm tra cấu hình* ✗, *Cài đặt*) · 🛠 khóa chia sẻ, đổi `BACKEND_SHARED_SECRET` = `GAS_SHARED_SECRET`, xem lịch sử phiên bản Sheet / file lạ trong Apps Script |
 | SEC-1 | P1 | = GAS-2 (link ký là “vé” duy nhất) | 🟡 như GAS-2 |
 | SEC-2 | P1 | = GAS-3 | ✅ |
 | SEC-3 | P1 | Người sửa được Sheet đọc được `BACKEND_SHARED_SECRET`, gọi thẳng Apps Script với mọi quyền | ⏳ kiến trúc — giảm số người sửa Sheet, tách Apps Script khỏi Sheet (dự án độc lập do tài khoản công ty sở hữu); v2.1 hạn chế hệ quả bằng GAS-4 |
@@ -108,7 +113,7 @@ tệp); màn hình tạo phiếu có nút **Chia sẻ (Zalo…)** trên điện 
 | OPS-6 | P1 | `ADMIN_USERS` chứa mật khẩu dạng rõ trong một secret | ⏳ băm mật khẩu (scrypt / PBKDF2) |
 | OPS-7 | P1 | Không có giám sát / cảnh báo | 🛠 BAN_GIAO_HE_THONG §7 |
 | OPS-8 | P2 | Tài liệu nói “người cầm link không ký thay được” nhưng thực tế ký được | ✅ tài liệu + cảnh báo (GAS-2) |
-| OPS-9, 10, 11 | P2 | Bộ giả lập khác Google thật; thiếu ca test đường quan trọng; Apps Script không lint / đo độ phủ | 🟡 thêm test cho mọi sửa đổi (268 test) · ⏳ lint `.gs`, đo độ phủ |
+| OPS-9, 10, 11 | P2 | Bộ giả lập khác Google thật; thiếu ca test đường quan trọng; Apps Script không lint / đo độ phủ | 🟡 thêm test cho mọi sửa đổi (271 test) · ⏳ lint `.gs`, đo độ phủ |
 | OPS-12 | P2 | Tài liệu vận hành lỗi thời (danh sách secret, binding rate-limit, DNS…) | 🟡 cập nhật README, `wrangler.jsonc`, `.dev.vars.example`, tài liệu mới |
 | OPS-13 | P3 | Phụ thuộc rất mới, không có Dependabot / `npm audit` | ⏳ |
 | OPS-14 | P3 | Không có môi trường thử (staging) | ⏳ — tối thiểu dùng `npm run local` trước mỗi lần phát hành |
@@ -155,7 +160,7 @@ logic kho. Mã băm nội dung giữ tương thích ngược: biên bản ký b�
 | Hạng mục | Kết quả |
 |---|---|
 | `npm run typecheck`, `npm run lint` | sạch |
-| `npm test` | 268 test (12 tệp) — Apps Script chạy trong bộ giả lập, Worker chạy thật trên Node |
+| `npm test` | 271 test (12 tệp) — Apps Script chạy trong bộ giả lập, Worker chạy thật trên Node |
 | `npm run build` | thành công; các trang đồng phục tách chunk 5–11 KB |
 | Bản gộp Apps Script | `npm run gas:bundle` → 563 KB, kiểm cú pháp đạt |
 | Chạy thử cục bộ qua HTTP (`npm run local`) | tạo phiếu đồng phục → mã OTP → ký → chặn ghi chú có mật khẩu → trả đồ mượn → sổ cấp phát → PDF → 4 tệp CSV: đạt |

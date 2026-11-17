@@ -1862,6 +1862,8 @@ function apiDpDashboard_() {
     readColumns_(SHEETS.ITEMS, ['handover_id', 'category', 'quantity', 'issue_kind', 'superseded_at', 'revision_id']).forEach(function (it) {
       if (revisions[it.handover_id] === undefined || !isCommittedItemRow_(it, revisions[it.handover_id])) return;
       if (String(it.category || '').toUpperCase() !== UNIFORM_CATEGORY_CODE) return;
+      // "Đã cấp năm" chỉ đếm cấp phát — đồ cho mượn (CHO_MUON) không phải cấp, đếm ở ô "Đang cho mượn".
+      if (String(it.issue_kind || '').toUpperCase() === 'CHO_MUON') return;
       qtyByHandover[it.handover_id] = (qtyByHandover[it.handover_id] || 0) + (toIntOrNull_(it.quantity) || 0);
     });
     heads.forEach(function (h) {

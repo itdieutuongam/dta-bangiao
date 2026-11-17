@@ -13,6 +13,7 @@
 | Dữ liệu biên bản / chữ ký / PDF | Truy cập trái phép, XSS, chèn công thức Sheet, file giả mạo | API kiểm tra quyền; Drive private; chỉ trả file trong thư mục hệ thống, đúng PNG/PDF (MIME + chữ ký nhị phân), CSP sandbox; React escape; CSP; chống formula injection |
 | Danh bạ nhân viên | Thu thập từ API công khai | **Không còn API danh bạ công khai**; trang đề xuất chỉ tra một người theo mã (không email / SĐT), giới hạn tần suất & số lần tra sai; tùy chọn `STAFF_ACCESS_CODE` |
 | Kho văn phòng phẩm | Sửa tồn trái phép, âm tồn, ghi trùng | Chỉ admin; mọi thay đổi qua biến động bất biến (người thực hiện, lý do) trong LockService; `operation_id` chống ghi trùng; không âm tồn |
+| Google Sheet dữ liệu + Apps Script gắn kèm | Chia sẻ bằng đường liên kết → ai có link đọc / sửa / xóa dữ liệu; người sửa được Sheet mở được Apps Script, đọc `BACKEND_SHARED_SECRET` | Sheet và thư mục DTA_HANDOVER để **“Bị hạn chế”**, chỉ thêm đích danh người cần sửa trực tiếp (hệ thống không cần chia sẻ — Web App chạy bằng tài khoản chủ sở hữu). *Kiểm tra cấu hình* báo ✗ và *Cài đặt* báo mục cần xử lý khi bị chia sẻ bằng link / sửa được cả tổ chức. Lỡ chia sẻ quyền sửa → khóa lại **và** đổi khóa kết nối |
 
 ## 2. Quản lý secret
 

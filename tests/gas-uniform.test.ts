@@ -225,6 +225,16 @@ describe('Đồng phục — phiếu bàn giao', () => {
     expect(row.usage.remaining).toBe(-1);
   });
 
+  it('tổng quan: "Đã cấp năm" chỉ đếm cấp phát đã ký — đồ cho mượn đếm ở "Đang cho mượn"', () => {
+    const mixed = uniformHandover(env, [line(redL, 1), line(sku(env, 'Áo sơmi đỏ', 'L').productId, 2, { issueKind: 'CHO_MUON', dueDate: inDays(7) })]);
+    expect(mixed.res.ok, JSON.stringify(mixed.res.error)).toBe(true);
+    expect(env.admin('dpDashboard', {}).data.counts).toMatchObject({ issuedThisYear: 0, pendingHandovers: 1 });
+    expect(confirmAs(env, mixed.token.hash).ok).toBe(true);
+    const counts = env.admin('dpDashboard', {}).data.counts;
+    expect(counts.issuedThisYear).toBe(1);
+    expect(counts.pendingHandovers).toBe(0);
+  });
+
   it('cho mượn bắt buộc hạn trả; dòng đồng phục nhập tay ở phiếu loại khác bị từ chối', () => {
     const noDue = uniformHandover(env, [line(redL, 1, { issueKind: 'CHO_MUON', dueDate: '' })]).res;
     expect(noDue.error?.code).toBe('VALIDATION_ERROR');

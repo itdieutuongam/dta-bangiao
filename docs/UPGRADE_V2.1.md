@@ -12,7 +12,7 @@ Không xóa / ghi đè dữ liệu cũ; phiếu đang chờ ký vẫn dùng link
 
 ```bash
 git checkout <nhánh chứa v2.1> && npm ci
-npm run verify            # typecheck + lint + toàn bộ test (268 test ở v2.1) — phải xanh
+npm run verify            # typecheck + lint + toàn bộ test (271 test ở v2.1) — phải xanh
 npm run gas:bundle        # → dist/apps-script/DTA_Handover.gs (1 file, gồm Uniform.gs / UniformSetup.gs)
 ```
 
@@ -38,7 +38,8 @@ npm run gas:bundle        # → dist/apps-script/DTA_Handover.gs (1 file, gồm 
    Chạy lại nhiều lần vẫn an toàn. Phiên bản Web App cũ (v2.0) vẫn chạy đúng với cấu trúc v3 (chỉ thêm, không đổi).
 5. *Triển khai → Quản lý tùy chọn triển khai → Sửa (bút chì) → Phiên bản: **Phiên bản mới** → Triển khai* (giữ nguyên URL).
 6. Menu **Khởi tạo danh mục đồng phục** (7 mẫu) → menu **Khóa sheet hệ thống** (khóa thêm `VPP_PHIEU_KHO`, `DP_BIEN_THE`, `DP_TON_KHO`,
-   `DP_BIEN_DONG_KHO`, `DP_THU_HOI`) → **Kiểm tra cấu hình**: mọi dòng ✓, trừ cảnh báo độ phủ email (xem §3.2).
+   `DP_BIEN_DONG_KHO`, `DP_THU_HOI`) → **Kiểm tra cấu hình**: mọi dòng ✓, trừ cảnh báo độ phủ email (xem §3 mục 2) và dòng ✗ chia sẻ
+   Sheet nếu chưa khóa (§3 mục 0).
 
 ## 2. Cloudflare Worker
 
@@ -63,6 +64,11 @@ hiện lại đủ định mức.
 
 Theo thứ tự ưu tiên — chi tiết lý do trong [AUDIT_V2.1.md](AUDIT_V2.1.md).
 
+0. **Khóa chia sẻ Google Sheet dữ liệu** (SEC-0): *Chia sẻ → Quyền truy cập chung → “Bị hạn chế”*; ai cần sửa trực tiếp thì thêm đích danh.
+   Nếu trước đó Sheet để “Bất kỳ ai có đường liên kết – **Người chỉnh sửa**” (production 17/11/2026) thì **đổi khóa kết nối**: menu
+   *Nhập / đổi khóa kết nối (BACKEND_SHARED_SECRET)* với chuỗi ngẫu nhiên mới ≥ 32 ký tự, rồi ngay sau đó
+   `npx wrangler secret put GAS_SHARED_SECRET` cùng giá trị (giữa hai bước, trang web báo lỗi kết nối vài chục giây). Xem *Lịch sử
+   phiên bản* của Sheet và danh sách file trong Apps Script để phát hiện thay đổi lạ. *Kiểm tra cấu hình* hết dòng ✗ về chia sẻ là xong.
 1. **Đổi ngay mật khẩu** của tài khoản được ghi trong mục *Tài khoản* của biên bản **BG-20261005-0001**. Biên bản đã ký không xóa
    được nội dung (và nội dung còn nằm trong PDF, bản sao lưu, lịch sử phiên bản Sheet) — đổi mật khẩu là cách khắc phục duy nhất.
    Từ v2.1 hệ thống chặn dạng “email / mật khẩu” này ở mục Tài khoản.

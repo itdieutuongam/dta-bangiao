@@ -1,5 +1,6 @@
 import type { Browser, BrowserContext, Page } from 'playwright-core';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { buildXlsx } from '../xlsxFixture';
 import {
   ADMIN_PASSWORD,
   BASE,
@@ -147,6 +148,17 @@ describe('Runtime Cloudflare (workerd) — static assets, deep link, API', () =>
       '/admin/vpp/de-xuat',
       '/admin/vpp/lich-su',
       '/admin/vpp/data-review',
+      '/admin/vpp/nhap-kho',
+      '/admin/vpp/xuat-kho',
+      '/admin/vpp/phieu-kho',
+      '/admin/vpp/nhap-excel',
+      '/admin/dong-phuc',
+      '/admin/dong-phuc/ton-kho',
+      '/admin/dong-phuc/nhan-vien',
+      '/admin/dong-phuc/nhan-vien/DEMO-103',
+      '/admin/dong-phuc/muon-tra',
+      '/admin/dong-phuc/tieu-chuan',
+      '/admin/dong-phuc/lich-su',
       '/admin/nhan-vien',
       '/admin/cai-dat',
       '/de-xuat-vpp',
@@ -767,5 +779,342 @@ describe('[RÀ SOÁT 3] Giao diện — số kiểu Việt Nam, hết phiên, m�
     await expect.poll(() => prompts.length).toBe(2);
     expect(await page.locator('#handover-note').inputValue()).toBe('Đang gõ dở');
     await page.context().close();
+  });
+});
+
+describe('[v2.1] Kho VPP nhiều mặt hàng, cập nhật từ Excel, đồng phục', () => {
+  // Tự đăng nhập trong context riêng → chạy riêng được: npm run test:e2e -- --skip-build -t "v2.1"
+  let ctx: BrowserContext;
+  let page: Page;
+  /** Lỗi phía trình duyệt trong khối này: console.error, lỗi JS, API trả ≥ 400 — phải rỗng. */
+  const problems: string[] = [];
+  const TAPE = 'Băng keo trong 5cm (E2E)';
+  const CLIP = 'Kẹp bướm 25mm (E2E)';
+  const num = (text: string | null) => Number((text ?? '').replace(/\D/g, ''));
+
+  function watch(p: Page) {
+    p.on('console', (m) => {
+      if (m.type() === 'error') problems.push(`console @ ${p.url()}: ${m.text()}`);
+    });
+    p.on('pageerror', (e) => problems.push(`pageerror @ ${p.url()}: ${e.message}`));
+    p.on('response', (r) => {
+      if (r.url().includes('/api/') && r.status() >= 400) problems.push(`${r.status()} ${r.request().method()} ${new URL(r.url()).pathname}`);
+    });
+  }
+
+  beforeAll(async () => {
+    ctx = await browser.newContext({ viewport: { width: 1440, height: 900 }, locale: 'vi-VN' });
+    await ctx.grantPermissions(['clipboard-read', 'clipboard-write'], { origin: BASE });
+    page = await ctx.newPage();
+    await page.goto(`${BASE}/admin`);
+    await page.getByLabel('Mật khẩu').fill(ADMIN_PASSWORD);
+    await page.getByRole('button', { name: 'Đăng nhập' }).click();
+    await page.getByRole('heading', { name: 'Tổng quan', level: 1 }).waitFor();
+    // Theo dõi lỗi từ sau khi đăng nhập (trước đó /api/admin/* trả 401 là đúng).
+    watch(page);
+    ctx.on('page', watch);
+  });
+
+  afterAll(async () => {
+    await ctx?.close();
+  });
+
+  it('cập nhật danh mục + tồn từ file Excel: đọc trên trình duyệt → xem trước → áp dụng; áp dụng lại không đổi gì', async () => {
+    const file = buildXlsx([
+      { name: 'Huong dan', rows: [['Không phải sheet dữ liệu']] },
+      {
+        name: 'Danh muc',
+        rows: [
+          ['DANH MỤC VĂN PHÒNG PHẨM (dữ liệu giả cho test)'],
+          [],
+          ['MÃ', 'TÊN HÀNG HÓA', 'ĐV TÍNH', 'ĐƠN GIÁ'],
+          ['E2E-BK5', TAPE, 'Cuộn', 12000],
+          ['E2E-KB25', CLIP, 'Hộp', 8000],
+          ['E2E-AO1', 'Áo thun đồng phục E2E', 'Cái', 90000],
+        ],
+      },
+      {
+        name: 'Ton kho',
+        rows: [
+          ['MÃ', 'TÊN HÀNG HÓA', 'ĐV TÍNH', 'TỒN HIỆN TẠI'],
+          ['E2E-BK5', TAPE, 'Cuộn', 25],
+          ['E2E-AO1', 'Áo thun đồng phục E2E', 'Cái', 4],
+        ],
+      },
+    ]);
+    const upload = async () => {
+      await page.goto(`${BASE}/admin/vpp/nhap-excel`);
+      await page.getByRole('heading', { name: 'Cập nhật danh mục & tồn kho VPP từ Excel' }).waitFor();
+      await page.locator('#import-input').setInputFiles({
+        name: 'theo-doi-vpp-e2e.xlsx',
+        mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        buffer: Buffer.from(file),
+      });
+      await page.locator('p', { hasText: 'Đọc được 2 mặt hàng văn phòng phẩm (1 mặt hàng có tồn > 0)' }).waitFor();
+    };
+    const tile = (label: string) => page.getByRole('region', { name: 'Tóm tắt thay đổi' }).locator('div.card', { hasText: label }).locator('p').nth(1);
+
+    await upload();
+    // Dòng áo tách sang đồng phục (không nhập vào VPP trừ khi tích chọn)
+    await page.getByText('1 dòng là đồng phục (áo)', { exact: false }).waitFor();
+    await page.getByText('Áo thun đồng phục E2E: tồn 4').waitFor();
+    await page.getByRole('button', { name: 'Xem trước thay đổi' }).click();
+    await expect.poll(() => tile('Thêm mới').textContent()).toBe('2');
+    expect(await tile('Đổi tồn kho').textContent()).toBe('1');
+    expect(await tile('Ngừng dùng').textContent()).toBe('0');
+    await screenshot(page, 'v21-import-preview-1440');
+
+    const apply = page.waitForRequest((r) => r.url().endsWith('/api/admin/vpp/import/apply'));
+    await page.getByRole('button', { name: 'Áp dụng thay đổi' }).click();
+    const dialog = page.getByRole('dialog', { name: 'Áp dụng cập nhật từ Excel?' });
+    await dialog.getByRole('button', { name: 'Áp dụng', exact: true }).click();
+    const body = JSON.parse((await apply).postData() ?? '{}');
+    expect(body.rows.map((r: { name: string }) => r.name)).toEqual([TAPE, CLIP]);
+    await page.getByText('Đã cập nhật danh mục và tồn kho từ file Excel.').first().waitFor({ timeout: 60_000 });
+
+    const tape = await stockRow(page, TAPE);
+    expect(num(tape.onHand)).toBe(25);
+    expect(await tape.row.textContent()).toContain('Cuộn');
+
+    // Áp dụng lại cùng file: mặt hàng đã có (khớp theo mã) → không thêm, không đổi tồn
+    await upload();
+    await page.getByRole('button', { name: 'Xem trước thay đổi' }).click();
+    await expect.poll(() => tile('Thêm mới').textContent()).toBe('0');
+    expect(await tile('Đổi tồn kho').textContent()).toBe('0');
+  });
+
+  it('phiếu nhập kho nhiều mặt hàng (NK): tích chọn, số lượng + đơn giá kiểu Việt Nam → tồn tăng, có phiếu NK', async () => {
+    const penBefore = num((await stockRow(page, PEN)).onHand);
+    await page.goto(`${BASE}/admin/vpp/nhap-kho`);
+    const search = page.getByRole('searchbox', { name: 'Tìm mặt hàng' });
+    await search.fill('bang keo trong 5cm'); // tìm không dấu
+    await page.getByRole('checkbox', { name: `Chọn ${TAPE}`, exact: true }).check();
+    await search.fill(PEN);
+    await page.getByRole('checkbox', { name: `Chọn ${PEN}`, exact: true }).check();
+    await page.getByLabel(`Số lượng nhập ${TAPE}`, { exact: true }).fill('10');
+    await page.getByLabel(`Đơn giá ${TAPE}`, { exact: true }).fill('12.500');
+    await page.getByLabel(`Số lượng nhập ${PEN}`, { exact: true }).fill('5');
+    await page.locator('#receipt-supplier').fill('Nhà sách E2E');
+    await page.locator('#receipt-invoice').fill('HD-E2E-01');
+
+    const request = page.waitForRequest((r) => r.url().endsWith('/api/admin/vpp/stock/receipt'));
+    await page.getByRole('button', { name: 'NHẬP KHO', exact: true }).click();
+    const body = JSON.parse((await request).postData() ?? '{}');
+    expect(body).toMatchObject({ supplier: 'Nhà sách E2E', invoiceNo: 'HD-E2E-01' });
+    expect(body.lines).toEqual(expect.arrayContaining([expect.objectContaining({ quantity: 10, unitPrice: 12500 }), expect.objectContaining({ quantity: 5 })]));
+    const toast = page.getByText(/^Đã nhập kho — phiếu NK-\d{8}-\d{4}\.$/);
+    await toast.waitFor();
+    const receiptCode = /NK-\d{8}-\d{4}/.exec((await toast.textContent()) ?? '')![0];
+
+    expect(num((await stockRow(page, TAPE)).onHand)).toBe(35);
+    expect(num((await stockRow(page, PEN)).onHand)).toBe(penBefore + 5);
+
+    await page.goto(`${BASE}/admin/vpp/phieu-kho`);
+    const vouchers = page.getByRole('region', { name: 'Danh sách phiếu' });
+    await vouchers.getByText(receiptCode).waitFor();
+    await expect.poll(() => vouchers.locator('li', { hasText: receiptCode }).first().textContent()).toContain('Nhà sách E2E');
+  });
+
+  it('phiếu xuất kho (XK) cho phòng ban: còn hàng lên đầu, không xuất quá khả dụng → tồn giảm; danh sách phiếu + tổng theo phòng ban', async () => {
+    await page.goto(`${BASE}/admin/vpp/xuat-kho`);
+    const list = page.getByRole('list', { name: 'Danh sách mặt hàng' });
+    await list.locator('li').first().waitFor();
+    // Mặc định chỉ hiện mặt hàng còn hàng, khả dụng nhiều → ít
+    const shown = (await list.locator('li span.text-lg').allTextContents()).map(num);
+    expect(shown.length).toBeGreaterThan(0);
+    expect(shown.every((n) => n > 0)).toBe(true);
+    expect([...shown].sort((a, b) => b - a)).toEqual(shown);
+    // Bỏ lọc: hết hàng / chưa rõ tồn nằm sau mọi mặt hàng còn hàng
+    const onlyInStock = page.getByLabel('Chỉ hiện mặt hàng còn hàng');
+    await onlyInStock.uncheck();
+    const all = (await list.locator('li span.text-lg').allTextContents()).map(num);
+    expect(all.length).toBeGreaterThan(shown.length);
+    const firstEmpty = all.findIndex((n) => n <= 0);
+    expect(firstEmpty).toBe(shown.length);
+    expect(all.slice(firstEmpty).every((n) => n <= 0)).toBe(true);
+    await onlyInStock.check();
+
+    await page.getByRole('searchbox', { name: 'Tìm mặt hàng' }).fill(TAPE);
+    await page.getByRole('checkbox', { name: `Chọn ${TAPE}`, exact: true }).check();
+    const qty = page.getByLabel(`Số lượng xuất ${TAPE}`, { exact: true });
+    await qty.fill('40');
+    await page.locator('#issue-department').fill('Phòng Hành chính E2E');
+    let sent = 0;
+    page.on('request', (r) => {
+      if (r.url().endsWith('/api/admin/vpp/stock/issue')) sent++;
+    });
+    await page.getByRole('button', { name: 'XUẤT KHO', exact: true }).click();
+    await page.getByText('Chỉ còn 35 Cuộn khả dụng').waitFor();
+    expect(sent).toBe(0); // chặn ngay trên trình duyệt
+    await qty.fill('30');
+    await page.getByRole('button', { name: 'XUẤT KHO', exact: true }).click();
+    const toast = page.getByText(/^Đã xuất kho — phiếu XK-\d{8}-\d{4}\.$/);
+    await toast.waitFor();
+    const issueCode = /XK-\d{8}-\d{4}/.exec((await toast.textContent()) ?? '')![0];
+    expect(sent).toBe(1);
+    expect(num((await stockRow(page, TAPE)).onHand)).toBe(5);
+
+    await page.goto(`${BASE}/admin/vpp/phieu-kho`);
+    await page.getByRole('group', { name: 'Loại phiếu' }).getByRole('button', { name: 'Phiếu xuất' }).click();
+    const vouchers = page.getByRole('region', { name: 'Danh sách phiếu' });
+    await vouchers.getByText(issueCode).waitFor();
+    await expect.poll(() => vouchers.getByText(/^NK-/).count()).toBe(0);
+    const summary = page.locator('section', { has: page.getByRole('heading', { name: 'Tổng xuất theo phòng ban' }) });
+    await summary.getByRole('columnheader', { name: 'Phòng Hành chính E2E' }).waitFor();
+    const tapeRow = summary.getByRole('row').filter({ hasText: TAPE });
+    expect((await tapeRow.getByRole('cell').allTextContents()).map((t) => t.trim())).toContain('30');
+    await screenshot(page, 'v21-vouchers-1440');
+
+    // "Tạo phiếu bàn giao (người nhận ký)" mang sẵn mặt hàng đã chọn sang form phiếu VPP
+    const handoff = await ctx.newPage();
+    const prompts: string[] = [];
+    handoff.on('dialog', (d) => {
+      prompts.push(d.message());
+      void d.dismiss();
+    });
+    await handoff.goto(`${BASE}/admin/vpp/xuat-kho`);
+    await handoff.getByRole('searchbox', { name: 'Tìm mặt hàng' }).fill(PEN);
+    await handoff.getByRole('checkbox', { name: `Chọn ${PEN}`, exact: true }).check();
+    await handoff.getByRole('button', { name: /^Tạo phiếu bàn giao \(người nhận ký\)/ }).click();
+    // Không hỏi "nội dung chưa được lưu sẽ bị mất" — các mặt hàng được mang sang form phiếu bàn giao
+    await handoff.waitForURL(/\/admin\/ban-giao\/tao-moi\?loai=OFFICE_SUPPLY/);
+    await handoff.getByText(PEN).first().waitFor();
+    expect(prompts).toEqual([]);
+    await handoff.close();
+  });
+
+  it('đồng phục: phiếu cấp phát + cho mượn → giữ chỗ → người nhận ký → trừ tồn; mượn / trả → ghi nhận trả (nhập lại hàng cũ)', async () => {
+    const SHIRT = 'Áo sơmi đỏ';
+    const POLO = 'Áo thun cá sấu';
+    const availOf = (label: string | null) => Number(/khả dụng (\d+)/.exec(label ?? '')?.[1] ?? Number.NaN);
+    const usedOf = (label: string | null) => Number(/đã qua sử dụng (\d+)/.exec(label ?? '')?.[1] ?? 0);
+    /** Mở form phiếu đồng phục trên tab mới, chọn người giao / nhận (nam, size L). */
+    const openForm = async () => {
+      const p = await ctx.newPage();
+      await p.goto(`${BASE}/admin/ban-giao/tao-moi`);
+      await p.getByRole('button', { name: /^Đồng phục/ }).click();
+      await p.locator('#sender-name').waitFor();
+      expect(p.url()).toContain('loai=UNIFORM');
+      await pickEmployee(p, 'sender-name', 'nguyen van an', 'Nguyễn Văn An');
+      await pickEmployee(p, 'receiver', 'le hoang duc', 'Lê Hoàng Đức');
+      return p;
+    };
+    const sizeButton = (p: Page, model: string, size: string) => p.getByRole('button', { name: new RegExp(`^Thêm ${model} size ${size}:`) });
+
+    const form = await openForm();
+    await sizeButton(form, SHIRT, 'L').waitFor();
+    // Người nhận nam → ẩn mẫu nữ (có ô tích để hiện) — chờ thông tin người nhận tải xong
+    const showFemale = form.getByLabel(/^Hiện cả mẫu dành cho nữ/);
+    await showFemale.waitFor();
+    expect(await form.getByRole('button', { name: /^Thêm Áo dài vàng size/ }).count()).toBe(0);
+    await showFemale.check();
+    await form.getByRole('button', { name: /^Thêm Áo dài vàng size/ }).first().waitFor();
+    await showFemale.uncheck();
+    const shirtAvail = availOf(await sizeButton(form, SHIRT, 'L').getAttribute('aria-label'));
+    const poloLabel = await sizeButton(form, POLO, 'L').getAttribute('aria-label');
+    const poloUsed = usedOf(poloLabel);
+    expect(shirtAvail).toBeGreaterThan(0);
+    await sizeButton(form, SHIRT, 'L').click();
+    await sizeButton(form, POLO, 'L').click();
+    const lines = form.locator('#dp-lines ol > li');
+    await expect.poll(() => lines.count()).toBe(2);
+    await lines.nth(1).getByLabel('Cho mượn').check();
+    await lines.nth(1).getByLabel('Hạn trả').waitFor();
+    await screenshot(form, 'v21-uniform-form-1440');
+    await form.getByRole('button', { name: 'TẠO PHIẾU', exact: true }).click();
+    await form.getByRole('heading', { name: 'ĐÃ TẠO BIÊN BẢN' }).waitFor({ timeout: 30_000 });
+    const link = await form.getByRole('textbox', { name: 'Link xác nhận' }).inputValue();
+    const code = (await form.locator('dd.font-mono').first().textContent())!.trim();
+    await form.close();
+
+    // Đã giữ chỗ: khả dụng giảm 1
+    const check = await openForm();
+    await expect.poll(async () => availOf(await sizeButton(check, SHIRT, 'L').getAttribute('aria-label'))).toBe(shirtAvail - 1);
+    await check.close();
+
+    // Người nhận ký (có email → mã xác nhận)
+    const signer = await ctx.newPage();
+    await signer.goto(link);
+    await signer.getByRole('heading', { name: code }).waitFor();
+    await signer.getByText(SHIRT).first().waitFor();
+    await signer.getByText('Cho mượn', { exact: false }).first().waitFor();
+    await signOnDesktop(signer, link, code);
+    await signer.close();
+
+    // Mượn / trả: dòng cho mượn đang giữ → ghi nhận trả, nhập lại kho dạng hàng đã qua sử dụng
+    await page.goto(`${BASE}/admin/dong-phuc/muon-tra`);
+    const holding = page.getByRole('listitem').filter({ hasText: 'Lê Hoàng Đức' }).filter({ hasText: POLO }).filter({ hasText: code });
+    await holding.waitFor();
+    await expect(holding.textContent()).resolves.toContain('còn giữ 1/1');
+    await holding.getByRole('button', { name: 'Ghi nhận trả' }).click();
+    const dialog = page.getByRole('dialog', { name: 'Ghi nhận trả / thu hồi đồng phục' });
+    await dialog.getByRole('button', { name: 'Ghi nhận', exact: true }).click();
+    await page.getByText('Đã ghi nhận trả / thu hồi đồng phục.').first().waitFor();
+
+    // Sổ cấp phát của nhân viên có cả 2 dòng của phiếu
+    await page.goto(`${BASE}/admin/dong-phuc/nhan-vien/DEMO-103`);
+    await page.getByText(code).first().waitFor();
+    await page.getByText(SHIRT).first().waitFor();
+
+    // Tồn sau ký: áo cấp phát vẫn trừ 1 (hết giữ chỗ); áo mượn trả về thành hàng đã qua sử dụng
+    const after = await openForm();
+    expect(availOf(await sizeButton(after, SHIRT, 'L').getAttribute('aria-label'))).toBe(shirtAvail - 1);
+    expect(usedOf(await sizeButton(after, POLO, 'L').getAttribute('aria-label'))).toBe(poloUsed + 1);
+    await after.close();
+  });
+
+  it('mọi trang quản trị (kể cả trang mới) mở được, không lỗi trình duyệt, không tràn ngang ở 1440px và 375px', async () => {
+    const routes = [
+      '/admin',
+      '/admin/ban-giao',
+      '/admin/ban-giao/tao-moi',
+      '/admin/vpp',
+      '/admin/vpp/ton-kho',
+      '/admin/vpp/dinh-muc',
+      '/admin/vpp/de-xuat',
+      '/admin/vpp/lich-su',
+      '/admin/vpp/data-review',
+      '/admin/vpp/nhap-kho',
+      '/admin/vpp/xuat-kho',
+      '/admin/vpp/phieu-kho',
+      '/admin/vpp/nhap-excel',
+      '/admin/dong-phuc',
+      '/admin/dong-phuc/ton-kho',
+      '/admin/dong-phuc/nhan-vien',
+      '/admin/dong-phuc/nhan-vien/DEMO-103',
+      '/admin/dong-phuc/muon-tra',
+      '/admin/dong-phuc/tieu-chuan',
+      '/admin/dong-phuc/lich-su',
+      '/admin/nhan-vien',
+      '/admin/cai-dat',
+    ];
+    const mobile = await browser.newContext({
+      viewport: { width: 375, height: 800 },
+      isMobile: true,
+      hasTouch: true,
+      deviceScaleFactor: 1,
+      locale: 'vi-VN',
+      storageState: await ctx.storageState(),
+    });
+    mobile.on('page', watch);
+    try {
+      for (const [width, p] of [
+        [1440, await ctx.newPage()],
+        [375, await mobile.newPage()],
+      ] as const) {
+        for (const route of routes) {
+          await p.goto(BASE + route);
+          await p.locator('h1').first().waitFor();
+          await p.waitForLoadState('networkidle');
+          expect(await p.getByText(/Không tải được/).count(), `${route} @ ${width}px`).toBe(0);
+          expect(await horizontalOverflow(p), `${route} @ ${width}px`).toBeLessThanOrEqual(0);
+          await screenshot(p, `v21${route.replaceAll('/', '-')}-${width}`);
+        }
+        await p.close();
+      }
+    } finally {
+      await mobile.close();
+    }
+    expect(problems).toEqual([]);
   });
 });
