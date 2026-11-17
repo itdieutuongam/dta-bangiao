@@ -388,6 +388,22 @@ describe('Đồng phục — Tồn đầu kỳ / Đã bàn giao / Khả dụng (
     expect(view(env, 'L')).toMatchObject({ received: 40, handedOver: 3, adjusted: -1, disposed: 2, available: 34 });
     identityHolds(env);
   });
+
+  it('cảnh báo hết hàng chỉ với mẫu từng có hàng mới — mẫu chỉ có hàng đã qua sử dụng (vd "Áo tái sử dụng") không báo', () => {
+    const env = setupUniform();
+    // Chưa nhập gì: không mẫu nào bị báo hết hàng
+    expect(env.admin('dpDashboard', {}).data.counts.outOfStockSkus).toBe(0);
+    // Áo thun cá sấu: chỉ có hàng đã qua sử dụng
+    expect(stockIn(env, 'Áo thun cá sấu', 'L', 35, { condition: 'USED' }).ok).toBe(true);
+    // Áo sơmi đỏ: có hàng mới size L → các size mới khác = 0 là hết hàng thật
+    expect(stockIn(env, 'Áo sơmi đỏ', 'L', 5).ok).toBe(true);
+    const dash = env.admin('dpDashboard', {}).data;
+    const alerted = new Set(dash.alerts.map((a: { modelName: string }) => a.modelName));
+    expect([...alerted]).toEqual(['Áo sơmi đỏ']);
+    expect(dash.counts.outOfStockSkus).toBe(4); // S, M, XL, XXL
+    const polo = model(env, 'Áo thun cá sấu') as unknown as { stock: { outOfStockSkus: number } };
+    expect(polo.stock.outOfStockSkus).toBe(0);
+  });
 });
 
 describe('Tương thích ngược & sửa dữ liệu', () => {

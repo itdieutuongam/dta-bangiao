@@ -118,6 +118,9 @@ Theo thứ tự ưu tiên — chi tiết lý do trong [AUDIT_V2.1.md](AUDIT_V2.1
 | 14:02 | Worker sửa lỗi phát hiện khi kiểm tra production (tràn ngang danh sách biên bản, chữ cũ trang Cài đặt) | Phiên bản Worker `49a29fbd…`; quét 21 trang quản trị: không lỗi console / API, không tràn ngang |
 | 14:24 | **Thống nhất đồng phục một nơi**: 4 mã áo trong VPP (Áo bảo hộ - DTA 29, Áo thun DTA 2XL 9 / L 0 / XL 17) kiểm kê về 0 + ngừng dùng | Số cũ ghi trong lý do kiểm kê; VPP còn 0 mã áo đang dùng |
 | 14:29 | Apps Script **Phiên bản 4**: số cộng dồn Tồn đầu kỳ / Đã bàn giao, chặn “Áo …” trong VPP | *Kiểm tra cấu hình* hợp lệ; health ok |
+| 14:33 | Worker: trang Tồn kho & mẫu mới (Tồn đầu kỳ / Đã bàn giao / Khả dụng) | Phiên bản Worker `e7729847…` |
+| 15:0x | **Tồn đầu kỳ đồng phục** theo file 17/11 (đã xác nhận): đổi tên mẫu Áo bảo hộ → **Áo Công Trình** (FREE 29); tạo **Áo KD** (L 0 · XL 16 · XXL 9), **Áo nam** (FREE 14), **Áo tái sử dụng** (FREE, đã qua sử dụng 35); 6 mẫu theo danh sách chính sách chưa từng có hàng → ngừng dùng | Tồn đầu kỳ 103 · đã bàn giao 0 · khả dụng 103 |
+| 15:30 | Apps Script **Phiên bản 5** + Worker: chỉ cảnh báo hết hàng mới ở mẫu từng có hàng mới (mẫu chỉ có hàng đã qua sử dụng không báo) | Cảnh báo còn đúng 1: Áo KD · L |
 
 Quay lui: Worker về bản trước (`2ae7ceed…` = v2.0, `3da5b300…` = v2.1 trước sửa giao diện, `49a29fbd…` = trước thống nhất đồng
 phục) ở *Deployments*; Apps Script chọn **Phiên bản 2** (v2.0) hoặc **3** (v2.1 trước thống nhất đồng phục) trong *Quản lý các bản

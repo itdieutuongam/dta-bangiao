@@ -196,6 +196,10 @@ function ModelCard({ model, onOpen }: { model: UniformStockModel; onOpen: (state
   const rows = sizes.flatMap((size) =>
     UNIFORM_CONDITIONS.map((c) => model.skus.find((s) => s.size === size && s.condition === c)).filter((s): s is UniformSku => Boolean(s)),
   );
+  // Mẫu từng có hàng mới? Không (chỉ hàng đã qua sử dụng / chưa nhập) → dòng "mới" = 0 không phải "hết hàng" (khớp dpNewStockTracked_).
+  const newTracked = model.skus.some(
+    (s) => s.condition === 'NEW' && ((s.totals?.received ?? 0) > 0 || (s.totals?.handedOver ?? 0) > 0 || (s.stock.onHand ?? 0) > 0),
+  );
   const sum = rows.reduce(
     (acc, s) => {
       const t = s.totals ?? EMPTY_UNIFORM_TOTALS;
@@ -271,7 +275,7 @@ function ModelCard({ model, onOpen }: { model: UniformStockModel; onOpen: (state
             </thead>
             <tbody>
               {rows.map((sku) => (
-                <SkuRow key={sku.productId} model={model} sku={sku} onOpen={onOpen} />
+                <SkuRow key={sku.productId} model={model} sku={sku} newTracked={newTracked} onOpen={onOpen} />
               ))}
             </tbody>
             <tfoot>
@@ -296,9 +300,20 @@ function ModelCard({ model, onOpen }: { model: UniformStockModel; onOpen: (state
   );
 }
 
-function SkuRow({ model, sku, onOpen }: { model: UniformStockModel; sku: UniformSku; onOpen: (state: DialogState) => void }) {
+function SkuRow({
+  model,
+  sku,
+  newTracked,
+  onOpen,
+}: {
+  model: UniformStockModel;
+  sku: UniformSku;
+  newTracked: boolean;
+  onOpen: (state: DialogState) => void;
+}) {
   const [open, setOpen] = useState(false);
   const t = sku.totals ?? EMPTY_UNIFORM_TOTALS;
+  const neverStocked = !newTracked && sku.condition === 'NEW' && (sku.stock.available ?? 0) <= 0;
   const label = `${sku.size}${sku.condition === 'USED' ? ' (đã qua sử dụng)' : ''}`;
   // Phần làm khả dụng khác "Tồn đầu kỳ − Đã bàn giao" — ghi rõ để phép cộng luôn khớp.
   const extras = [
@@ -318,7 +333,13 @@ function SkuRow({ model, sku, onOpen }: { model: UniformStockModel; sku: Uniform
         <td className="px-2 py-1.5 text-right tabular-nums">{t.received.toLocaleString('vi-VN')}</td>
         <td className="px-2 py-1.5 text-right tabular-nums">{t.handedOver.toLocaleString('vi-VN')}</td>
         <td className="px-2 py-1.5 text-right">
-          <span className={cn('inline-block min-w-10 rounded-md px-2 py-0.5 text-center font-bold tabular-nums ring-1 ring-inset', CELL_STYLES[sku.stock.status])}>
+          <span
+            className={cn(
+              'inline-block min-w-10 rounded-md px-2 py-0.5 text-center font-bold tabular-nums ring-1 ring-inset',
+              neverStocked ? 'bg-stone-50 text-stone-500 ring-stone-200' : CELL_STYLES[sku.stock.status],
+            )}
+            title={neverStocked ? 'Mẫu chưa từng có hàng mới — không tính là hết hàng' : undefined}
+          >
             <Qty value={sku.stock.available} />
           </span>
           {extras.length > 0 && <span className="block text-[11px] leading-tight text-stone-500">{extras.join(' · ')}</span>}

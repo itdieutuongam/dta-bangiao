@@ -279,11 +279,24 @@ function dpSkuTotals_(ledgerEntry, stock) {
   return totals;
 }
 
+/**
+ * Mẫu đã từng có hàng MỚI (nhập / bàn giao / đang có tồn ở mặt hàng tình trạng Mới)? Chỉ mẫu như vậy mới cảnh báo hết / sắp hết
+ * hàng mới — mẫu chỉ chứa hàng đã qua sử dụng (vd “Áo tái sử dụng”) hoặc chưa từng nhập thì dòng “Mới” = 0 không phải “hết hàng”.
+ */
+function dpNewStockTracked_(skuViews) {
+  return (skuViews || []).some(function (v) {
+    if (v.condition !== 'NEW') return false;
+    var t = v.totals || {};
+    return (t.received || 0) > 0 || (t.handedOver || 0) > 0 || (v.stock && (v.stock.onHand || 0) > 0);
+  });
+}
+
 function dpModelStockSummary_(skuViews) {
   var out = {
     onHand: 0, reserved: 0, available: 0, newAvailable: 0, usedAvailable: 0, outOfStockSkus: 0, lowStockSkus: 0, received: 0, handedOver: 0
   };
   var unknown = false;
+  var tracked = dpNewStockTracked_(skuViews);
   skuViews.forEach(function (v) {
     if (v.totals) {
       out.received += v.totals.received;
@@ -299,9 +312,9 @@ function dpModelStockSummary_(skuViews) {
       else out.usedAvailable += Math.max(0, v.stock.available);
     }
     out.reserved += v.stock.reserved;
-    // Hàng đã qua sử dụng hết là bình thường — chỉ cảnh báo hết / sắp hết với hàng mới.
-    if (v.condition === 'NEW' && v.stock.status === 'OUT_OF_STOCK') out.outOfStockSkus++;
-    if (v.condition === 'NEW' && v.stock.status === 'LOW_STOCK') out.lowStockSkus++;
+    // Hàng đã qua sử dụng hết là bình thường — chỉ cảnh báo hết / sắp hết với hàng mới, ở mẫu từng có hàng mới.
+    if (tracked && v.condition === 'NEW' && v.stock.status === 'OUT_OF_STOCK') out.outOfStockSkus++;
+    if (tracked && v.condition === 'NEW' && v.stock.status === 'LOW_STOCK') out.lowStockSkus++;
   });
   if (unknown) {
     out.onHand = null;
@@ -1837,7 +1850,7 @@ function apiDpRecordReturn_(data) {
 function dpStockAlerts_(catalog) {
   var alerts = [];
   catalog.models.forEach(function (m) {
-    if (!m.active) return;
+    if (!m.active || !dpNewStockTracked_(m.skus)) return;
     m.skus.forEach(function (s) {
       if (!s.active || s.condition !== 'NEW') return;
       if (s.stock.status === 'IN_STOCK') return;
@@ -1862,6 +1875,7 @@ function apiDpDashboard_() {
     issuedThisYear: 0, overQuotaEmployees: 0, received: 0, handedOver: 0
   };
   catalog.models.forEach(function (m) {
+    var tracked = dpNewStockTracked_(m.skus);
     m.skus.forEach(function (s) {
       if (s.totals) {
         counts.received += s.totals.received;
@@ -1874,8 +1888,8 @@ function apiDpDashboard_() {
         counts.available += Math.max(0, s.stock.available);
       }
       counts.reserved += s.stock.reserved;
-      if (s.condition === 'NEW' && s.stock.status === 'OUT_OF_STOCK') counts.outOfStockSkus++;
-      if (s.condition === 'NEW' && s.stock.status === 'LOW_STOCK') counts.lowStockSkus++;
+      if (tracked && s.condition === 'NEW' && s.stock.status === 'OUT_OF_STOCK') counts.outOfStockSkus++;
+      if (tracked && s.condition === 'NEW' && s.stock.status === 'LOW_STOCK') counts.lowStockSkus++;
     });
   });
   var heads = readColumns_(SHEETS.HANDOVERS, [
