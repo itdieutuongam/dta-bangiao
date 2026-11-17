@@ -20,7 +20,9 @@ npm run gas:bundle        # → dist/apps-script/DTA_Handover.gs (1 file, gồm 
 
 1. Google Sheet → menu **DTA Handover → Sao lưu ngay** (bước 3 cũng tự sao lưu trước khi đổi cấu trúc).
 2. *Tiện ích mở rộng → Apps Script*: dán **toàn bộ** `dist/apps-script/DTA_Handover.gs` đè lên file code hiện có → **Lưu**.
-   Dự án đang dùng nhiều file `.gs` (clasp): cập nhật mọi file và **thêm** `Uniform.gs`, `UniformSetup.gs`.
+   Dự án đang dùng nhiều file `.gs` (clasp): cập nhật mọi file và **thêm** `VppVouchers.gs`, `VppImport.gs`, `Uniform.gs`,
+   `UniformSetup.gs` — hoặc đơn giản hơn: xóa các file `.gs` của DTA Handover (Config.gs, Code.gs, Vpp.gs…) và chỉ giữ một file
+   chứa bản gộp (không đụng `appsscript.json` — v2.1 không đổi manifest).
    Web App lúc này **vẫn chạy phiên bản cũ** (deployment gắn với version) — người dùng không bị gián đoạn.
 3. Mở lại Google Sheet (F5) → menu **DTA Handover → Kiểm tra cấu hình**; cấp quyền nếu Google hỏi. Dòng đầu phải là
    “✓ Code Apps Script đầy đủ, một phiên bản (v2.1.0)”; dòng cấu trúc báo cần nâng cấp v3 là bình thường.
