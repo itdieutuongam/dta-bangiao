@@ -265,10 +265,30 @@ function dpSkuView_(sku, stock, model) {
   };
 }
 
+/**
+ * Số cộng dồn của một mặt hàng theo sổ biến động — để trang tồn kho hiện "Tồn đầu kỳ (gồm nhập bổ sung) / Đã bàn giao / Khả dụng":
+ * khả dụng = received − handedOver + returned − disposed + adjusted − đang giữ chỗ. Tồn có trên sheet nhưng chưa có biến động nào
+ * (nhập tay trước khi có sổ) được coi là tồn đầu kỳ.
+ */
+function dpSkuTotals_(ledgerEntry, stock) {
+  var t = ledgerEntry && ledgerEntry.totals;
+  var totals = t
+    ? { received: t.received, handedOver: t.handedOver, returned: t.returned, disposed: t.disposed, adjusted: t.adjusted }
+    : { received: 0, handedOver: 0, returned: 0, disposed: 0, adjusted: 0 };
+  if (!ledgerEntry && stock && stock.onHand) totals.received = stock.onHand;
+  return totals;
+}
+
 function dpModelStockSummary_(skuViews) {
-  var out = { onHand: 0, reserved: 0, available: 0, newAvailable: 0, usedAvailable: 0, outOfStockSkus: 0, lowStockSkus: 0 };
+  var out = {
+    onHand: 0, reserved: 0, available: 0, newAvailable: 0, usedAvailable: 0, outOfStockSkus: 0, lowStockSkus: 0, received: 0, handedOver: 0
+  };
   var unknown = false;
   skuViews.forEach(function (v) {
+    if (v.totals) {
+      out.received += v.totals.received;
+      out.handedOver += v.totals.handedOver;
+    }
     if (!v.active) return;
     if (v.stock.onHand === null) {
       unknown = true;
@@ -334,7 +354,9 @@ function dpStockCatalog_(options) {
   var models = dpLoadModels_();
   var modelMap = dpModelMap_(models);
   var skus = dpLoadSkus_();
-  var stockMap = ledgerStockMap_(loadStockMap_(store), skus.map(function (s) { return s.productId; }), store);
+  var productIds = skus.map(function (s) { return s.productId; });
+  var ledger = stockFromLedger_(productIds, store);
+  var stockMap = ledgerStockMap_(loadStockMap_(store), productIds, store, ledger);
   var bySku = {};
   var byModel = {};
   skus.forEach(function (s) {
@@ -342,6 +364,7 @@ function dpStockCatalog_(options) {
     bySku[s.productId] = s;
     var model = modelMap[s.modelId];
     var view = dpSkuView_(s, stockMap[s.productId], model);
+    view.totals = dpSkuTotals_(ledger[String(s.productId).toLowerCase()], stockMap[s.productId]);
     var own = options.own && options.own[s.productId] ? Math.max(0, options.own[s.productId].reserved) : 0;
     if (options.own) {
       view.reservedByThisHandover = own;
@@ -1073,8 +1096,11 @@ function dpRequireSku_(productId) {
 
 function dpSkuResult_(sku, model) {
   var store = dpStore_();
-  var stock = ledgerStockMap_(loadStockMap_(store), [sku.productId], store)[sku.productId];
-  return dpSkuView_(sku, stock, model);
+  var ledger = stockFromLedger_([sku.productId], store);
+  var stock = ledgerStockMap_(loadStockMap_(store), [sku.productId], store, ledger)[sku.productId];
+  var view = dpSkuView_(sku, stock, model);
+  view.totals = dpSkuTotals_(ledger[String(sku.productId).toLowerCase()], stock);
+  return view;
 }
 
 function dpReusedError_(prior, label, what) {
@@ -1833,10 +1859,14 @@ function apiDpDashboard_() {
   var counts = {
     models: catalog.models.length, onHand: 0, reserved: 0, available: 0, outOfStockSkus: 0, lowStockSkus: 0, unknownStockSkus: 0,
     pendingHandovers: 0, loansOutstanding: 0, loansOverdue: 0, employeesMissingSize: 0, employeesMissingGender: 0,
-    issuedThisYear: 0, overQuotaEmployees: 0
+    issuedThisYear: 0, overQuotaEmployees: 0, received: 0, handedOver: 0
   };
   catalog.models.forEach(function (m) {
     m.skus.forEach(function (s) {
+      if (s.totals) {
+        counts.received += s.totals.received;
+        counts.handedOver += s.totals.handedOver;
+      }
       if (!s.active) return;
       if (s.stock.onHand === null) counts.unknownStockSkus++;
       else {

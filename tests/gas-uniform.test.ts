@@ -334,6 +334,62 @@ describe('Đồng phục — phiếu bàn giao', () => {
   });
 });
 
+describe('Đồng phục — Tồn đầu kỳ / Đã bàn giao / Khả dụng (yêu cầu 17/11/2026)', () => {
+  type Totals = { received: number; handedOver: number; returned: number; disposed: number; adjusted: number };
+  const view = (env: Env, size: string, condition = 'NEW') => {
+    const s = sku(env, 'Áo sơmi đỏ', size, condition) as unknown as { totals: Totals; stock: { onHand: number; reserved: number; available: number } };
+    return { ...s.totals, onHand: s.stock.onHand, reserved: s.stock.reserved, available: s.stock.available };
+  };
+  /** khả dụng = tồn đầu kỳ − đã bàn giao + trả về − thanh lý ± kiểm kê − đang giữ chỗ (mọi mặt hàng của mọi mẫu) */
+  const identityHolds = (env: Env) => {
+    for (const m of stockModels(env)) {
+      for (const s of m.skus as unknown as Array<{ totals: Totals; stock: { onHand: number | null; reserved: number; available: number | null } }>) {
+        if (s.stock.available === null) continue;
+        const t = s.totals;
+        expect(s.stock.available).toBe(t.received - t.handedOver + t.returned - t.disposed + t.adjusted - s.stock.reserved);
+      }
+    }
+  };
+
+  it('tồn đầu kỳ 30, bàn giao 2 → khả dụng 28; nhập bổ sung 10 → tồn đầu kỳ 40, khả dụng 38; số liệu luôn khớp', () => {
+    const env = setupUniform();
+    env.admin('dpSaveEmployeeProfile', { employeeId: 'DEMO-519', gender: 'NAM', uniformSize: 'L' });
+    expect(stockIn(env, 'Áo sơmi đỏ', 'L', 30).ok).toBe(true); // lý do "Tồn đầu kỳ"
+    expect(view(env, 'L')).toMatchObject({ received: 30, handedOver: 0, available: 30 });
+
+    const issued = uniformHandover(env, [line(sku(env, 'Áo sơmi đỏ', 'L').productId, 2)]);
+    expect(issued.res.ok, JSON.stringify(issued.res.error)).toBe(true);
+    // Chờ ký: giữ chỗ 2 → khả dụng 28, chưa tính "đã bàn giao"
+    expect(view(env, 'L')).toMatchObject({ received: 30, handedOver: 0, reserved: 2, available: 28 });
+    expect(confirmAs(env, issued.token.hash).ok).toBe(true);
+    expect(view(env, 'L')).toMatchObject({ received: 30, handedOver: 2, reserved: 0, onHand: 28, available: 28 });
+
+    // Nhập bổ sung: tồn đầu kỳ và khả dụng cùng tăng đúng số nhập
+    expect(stockIn(env, 'Áo sơmi đỏ', 'L', 10, { reasonType: 'MUA_MOI' }).ok).toBe(true);
+    expect(view(env, 'L')).toMatchObject({ received: 40, handedOver: 2, available: 38 });
+    const dashboard = env.admin('dpDashboard', {}).data.counts;
+    expect(dashboard).toMatchObject({ received: 40, handedOver: 2, available: 38 });
+
+    // Cho mượn → ký → trả (nhập lại hàng đã qua sử dụng), kiểm kê, thanh lý: phép cộng vẫn khớp
+    const loan = uniformHandover(env, [line(sku(env, 'Áo sơmi đỏ', 'L').productId, 1, { issueKind: 'CHO_MUON', dueDate: inDays(5) })]);
+    expect(loan.res.ok, JSON.stringify(loan.res.error)).toBe(true);
+    expect(confirmAs(env, loan.token.hash).ok).toBe(true);
+    const holding = env.admin('dpListHoldings', { status: 'loans' }).data.items[0];
+    const back = env.admin('dpRecordReturn', {
+      handoverId: loan.id, itemId: holding.itemId, quantity: 1, result: 'RESTOCK', restockCondition: 'USED', reason: 'TRA_MUON', note: '', clientRequestId: rid(),
+    });
+    expect(back.ok, JSON.stringify(back.error)).toBe(true);
+    expect(view(env, 'L')).toMatchObject({ received: 40, handedOver: 3, available: 37 });
+    expect(view(env, 'L', 'USED')).toMatchObject({ received: 0, returned: 1, available: 1 });
+    const adjust = env.admin('dpStockAdjust', { productId: sku(env, 'Áo sơmi đỏ', 'L').productId, countedQuantity: 36, reason: 'Kiểm kê cuối tháng', clientRequestId: rid() });
+    expect(adjust.ok, JSON.stringify(adjust.error)).toBe(true);
+    const dispose = env.admin('dpStockDispose', { productId: sku(env, 'Áo sơmi đỏ', 'L').productId, quantity: 2, reason: 'Áo lỗi đường may', clientRequestId: rid() });
+    expect(dispose.ok, JSON.stringify(dispose.error)).toBe(true);
+    expect(view(env, 'L')).toMatchObject({ received: 40, handedOver: 3, adjusted: -1, disposed: 2, available: 34 });
+    identityHolds(env);
+  });
+});
+
 describe('Tương thích ngược & sửa dữ liệu', () => {
   it('mã băm nội dung của dòng KHÔNG có size / hình thức giữ nguyên như v2.0.0 (biên bản cũ không bị MISMATCH)', () => {
     const env = setupGas();
@@ -449,8 +505,9 @@ describe('Đồng phục — PDF & xuất CSV', () => {
     const stock = csv('uniform-stock.csv');
     expect(stock.header).toMatchObject({ fileBase: 'ton-kho-dong-phuc', rows: 35, total: 35 });
     expect(stock.body).toContain('"Mã mẫu","Mẫu","Loại","Giới tính","Size"');
-    // Áo sơmi đỏ L: nhập 5, xuất 2 khi ký.
-    expect(stock.body).toMatch(/"DP-001","Áo sơmi đỏ","Đồng phục","Nam","L","Mới","DP-001-L","3","0","3"/);
+    // Áo sơmi đỏ L: nhập 5, xuất 2 khi ký → Tồn đầu kỳ 5 · Đã bàn giao 2 · (trả 0 · kiểm kê 0 · thanh lý 0) · tồn 3 · giữ 0 · khả dụng 3.
+    expect(stock.body).toContain('"Tồn đầu kỳ (gồm nhập bổ sung)","Đã bàn giao","Trả về kho","Kiểm kê (±)","Thanh lý","Tồn thực tế"');
+    expect(stock.body).toMatch(/"DP-001","Áo sơmi đỏ","Đồng phục","Nam","L","Mới","DP-001-L","5","2","0","0","0","3","0","3"/);
 
     const moves = csv('uniform-movements.csv', { type: 'OUT' });
     expect(moves.header.rows).toBe(2);

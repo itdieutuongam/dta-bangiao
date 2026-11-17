@@ -1068,6 +1068,25 @@ describe('[v2.1] Kho VPP nhiều mặt hàng, cập nhật từ Excel, đồng p
     expect(availOf(await sizeButton(after, SHIRT, 'L').getAttribute('aria-label'))).toBe(shirtAvail - 1);
     expect(usedOf(await sizeButton(after, POLO, 'L').getAttribute('aria-label'))).toBe(poloUsed + 1);
     await after.close();
+
+    // Trang Tồn kho & mẫu: mỗi size một dòng — Tồn đầu kỳ (không giảm khi bàn giao) / Đã bàn giao / Khả dụng
+    await page.goto(`${BASE}/admin/dong-phuc/ton-kho`);
+    const shirtTable = page.getByRole('table', { name: `Tồn kho ${SHIRT} theo size` });
+    const rowL = shirtTable.getByRole('row').filter({ has: page.getByRole('rowheader', { name: 'L', exact: true }) });
+    const cells = async () => (await rowL.getByRole('cell').allTextContents()).map((t) => num(t.split('đang giữ')[0]!));
+    await rowL.waitFor();
+    expect((await cells()).slice(0, 3)).toEqual([shirtAvail, 1, shirtAvail - 1]);
+    // Nhập bổ sung 3 → Tồn đầu kỳ và Khả dụng cùng tăng 3
+    await rowL.getByRole('button', { name: 'Thao tác size L' }).click();
+    await shirtTable.getByRole('button', { name: 'Nhập thêm' }).click();
+    const inDialog = page.getByRole('dialog', { name: `Nhập kho: ${SHIRT}` });
+    expect(await inDialog.locator('#dp-in-reason').inputValue()).toBe('MUA_MOI'); // đã có tồn → "Nhập bổ sung"
+    await inDialog.locator('#dp-in-qty').fill('3');
+    await inDialog.getByText(`Sau khi nhập 3: Tồn đầu kỳ ${shirtAvail + 3} · Khả dụng ${shirtAvail + 2}`).waitFor();
+    await inDialog.getByRole('button', { name: 'Nhập kho', exact: true }).click();
+    await page.getByText(`Đã nhập kho size L. Tồn đầu kỳ: ${shirtAvail + 3} · khả dụng: ${shirtAvail + 2}.`).waitFor();
+    await expect.poll(async () => (await cells()).slice(0, 3)).toEqual([shirtAvail + 3, 1, shirtAvail + 2]);
+    await screenshot(page, 'v21-uniform-stock-1440');
   });
 
   it('[PRODUCTION 17/11/2026] danh sách biên bản có ghi chú khi ký: chữ sr-only trong bảng không làm cả trang tràn ngang (1024 / 1064px)', async () => {

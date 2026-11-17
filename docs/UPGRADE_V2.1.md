@@ -86,9 +86,11 @@ Theo thứ tự ưu tiên — chi tiết lý do trong [AUDIT_V2.1.md](AUDIT_V2.1
    1 dòng trùng tên bị bỏ (“Hộp dấu nhựa Shiny SP.01 (nhựa), xanh” dòng 373 — kiểm tra lại màu). Ở bước xem trước, chọn **“Cập nhật …”**
    cho các dòng được gợi ý trùng với sản phẩm cũ đang có định mức; sau khi áp dụng, ghép phần còn lại ở *Dữ liệu cần kiểm tra*.
    Từ nay nhập / xuất hằng ngày làm ở *Nhập kho* / *Xuất kho* thay cho sheet “Nhap VPP” / “Xuat VPP”.
-6. **Đưa module Đồng phục vào dùng** ([DONG_PHUC.md §6](DONG_PHUC.md#6-đưa-vào-sử-dụng-lần-đầu)): nhập tồn đầu kỳ theo size (file Excel VPP
-   đang ghi: Áo Công Trình 29, Áo KD XL 16, Áo KD XXL 9, ÁO NAM 14, Áo tái sử dụng 35 — chọn đúng mẫu / size / tình trạng), điền giới tính /
-   size nhân viên, chuyển **Áo bảo hộ** từ văn phòng phẩm sang đồng phục, (tùy chọn) tiêu chuẩn theo nhóm.
+6. **Đưa module Đồng phục vào dùng** ([DONG_PHUC.md §6](DONG_PHUC.md#6-đưa-vào-sử-dụng-lần-đầu)) — đồng phục **chỉ** quản lý ở module
+   này; các mã áo cũ trong VPP đã kiểm kê về 0 và ngừng dùng (17/11/2026). Trang *Tồn kho & mẫu* → *Nhập kho* → lý do **Tồn đầu kỳ**
+   theo từng mẫu / size / tình trạng (file Excel 17/11 ghi: Áo Công Trình 29, Áo KD XL 16, Áo KD XXL 9, Áo KD L 0, ÁO NAM 14, Áo tái
+   sử dụng 35 — tạo mẫu còn thiếu bằng *Thêm mẫu*; “tái sử dụng” = tình trạng *Đã qua sử dụng*); lần sau mua thêm chọn **Nhập bổ sung**.
+   Điền giới tính / size nhân viên, (tùy chọn) tiêu chuẩn theo nhóm.
 7. **Quyền sở hữu & sao lưu**: thực hiện kế hoạch ở [BAN_GIAO_HE_THONG.md](BAN_GIAO_HE_THONG.md) (chuyển dữ liệu khỏi tài khoản cá nhân,
    lưu secret vào kho mật khẩu công ty, kiểm tra khôi phục).
 
@@ -114,6 +116,9 @@ Theo thứ tự ưu tiên — chi tiết lý do trong [AUDIT_V2.1.md](AUDIT_V2.1
 | 13:39 | Đổi khóa kết nối: menu *Nhập / đổi khóa kết nối* + `wrangler secret put GAS_SHARED_SECRET` (lệch ~1 giây) | Health ok với khóa mới |
 | 13:59 | Cập nhật VPP từ `Mau_theo_doi_VPP.xlsx` (ghép tay 2 dòng có định mức: nước rửa chén 3.6kg, nước lau kiếng) | Thêm 467, cập nhật 17, đặt tồn 23; xem trước lại = 0 thay đổi |
 | 14:02 | Worker sửa lỗi phát hiện khi kiểm tra production (tràn ngang danh sách biên bản, chữ cũ trang Cài đặt) | Phiên bản Worker `49a29fbd…`; quét 21 trang quản trị: không lỗi console / API, không tràn ngang |
+| 14:24 | **Thống nhất đồng phục một nơi**: 4 mã áo trong VPP (Áo bảo hộ - DTA 29, Áo thun DTA 2XL 9 / L 0 / XL 17) kiểm kê về 0 + ngừng dùng | Số cũ ghi trong lý do kiểm kê; VPP còn 0 mã áo đang dùng |
+| 14:29 | Apps Script **Phiên bản 4**: số cộng dồn Tồn đầu kỳ / Đã bàn giao, chặn “Áo …” trong VPP | *Kiểm tra cấu hình* hợp lệ; health ok |
 
-Quay lui: Worker về bản trước (`2ae7ceed…` = v2.0, `3da5b300…` = v2.1 trước sửa giao diện) ở *Deployments*; Apps Script chọn
-**Phiên bản 2** (v2.0) trong *Quản lý các bản triển khai*. Khóa kết nối đã đổi nằm ở Script Properties + Cloudflare (không lưu trong repo).
+Quay lui: Worker về bản trước (`2ae7ceed…` = v2.0, `3da5b300…` = v2.1 trước sửa giao diện, `49a29fbd…` = trước thống nhất đồng
+phục) ở *Deployments*; Apps Script chọn **Phiên bản 2** (v2.0) hoặc **3** (v2.1 trước thống nhất đồng phục) trong *Quản lý các bản
+triển khai*. Khóa kết nối đã đổi nằm ở Script Properties + Cloudflare (không lưu trong repo).

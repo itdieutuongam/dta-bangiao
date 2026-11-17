@@ -68,10 +68,11 @@ export function signedUniformMovementQuantity(type: UniformMovementType, quantit
   return type === 'OUT' || type === 'RELEASE' || type === 'DISPOSE' ? -Math.abs(quantity) : Math.abs(quantity);
 }
 
-export const UNIFORM_STOCK_IN_REASONS = ['MUA_MOI', 'TON_DAU_KY', 'CHUYEN_KHO', 'KHAC'] as const;
+/** Lý do nhập kho đồng phục. Cả "Tồn đầu kỳ" và "Nhập bổ sung" đều cộng vào số Tồn đầu kỳ (cộng dồn) và Khả dụng. */
+export const UNIFORM_STOCK_IN_REASONS = ['TON_DAU_KY', 'MUA_MOI', 'CHUYEN_KHO', 'KHAC'] as const;
 export type UniformStockInReason = (typeof UNIFORM_STOCK_IN_REASONS)[number];
 export const UNIFORM_STOCK_IN_REASON_LABELS: Record<UniformStockInReason, string> = {
-  MUA_MOI: 'Mua / đặt may mới',
+  MUA_MOI: 'Nhập bổ sung (mua / đặt may mới)',
   TON_DAU_KY: 'Tồn đầu kỳ',
   CHUYEN_KHO: 'Chuyển kho',
   KHAC: 'Khác',
@@ -118,7 +119,29 @@ export interface UniformModelStockSummary {
   /** Số mặt hàng (size × tình trạng) đang hết / sắp hết. */
   outOfStockSkus: number;
   lowStockSkus: number;
+  /** Tồn đầu kỳ cộng dồn (gồm các lần nhập bổ sung) và đã bàn giao — cộng mọi size (Apps Script cũ không trả → coi như 0). */
+  received?: number;
+  handedOver?: number;
 }
+
+/**
+ * Số cộng dồn của một mặt hàng theo sổ biến động. Luôn khớp:
+ * khả dụng = received − handedOver + returned − disposed + adjusted − đang giữ chỗ.
+ */
+export interface UniformStockTotals {
+  /** Tồn đầu kỳ + mọi lần nhập bổ sung (không giảm khi bàn giao). */
+  received: number;
+  /** Đã bàn giao (phiếu đã ký). */
+  handedOver: number;
+  /** Nhân viên trả / thu hồi, nhập lại kho. */
+  returned: number;
+  /** Thanh lý / hủy. */
+  disposed: number;
+  /** Tổng chênh lệch kiểm kê (±). */
+  adjusted: number;
+}
+
+export const EMPTY_UNIFORM_TOTALS: UniformStockTotals = { received: 0, handedOver: 0, returned: 0, disposed: 0, adjusted: 0 };
 
 export interface UniformModel {
   modelId: string;
@@ -151,6 +174,8 @@ export interface UniformSku {
   condition: UniformCondition;
   active: boolean;
   stock: StockView;
+  /** Có từ v2.1 (trang tồn kho); Apps Script cũ không trả → coi như 0. */
+  totals?: UniformStockTotals;
 }
 
 export interface UniformStockModel extends UniformModel {
@@ -427,6 +452,9 @@ export interface UniformDashboard {
     employeesMissingGender: number;
     issuedThisYear: number;
     overQuotaEmployees: number;
+    /** Tồn đầu kỳ cộng dồn (gồm nhập bổ sung) / đã bàn giao — mọi mẫu (Apps Script cũ không trả). */
+    received?: number;
+    handedOver?: number;
   };
   alerts: UniformStockAlert[];
   overdueLoans: UniformHolding[];

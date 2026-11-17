@@ -203,9 +203,11 @@ function exportUniformStockCsv_(filters) {
   var rows = [];
   data.models.forEach(function (m) {
     m.skus.forEach(function (s) {
+      var t = s.totals || { received: 0, handedOver: 0, returned: 0, disposed: 0, adjusted: 0 };
       rows.push([
         m.modelCode, m.modelName, L.uniformKind[m.kind] || m.kind, L.uniformGender[m.gender] || m.gender, s.size,
-        L.uniformCondition[s.condition] || s.condition, s.skuCode, s.stock.onHand, s.stock.reserved, s.stock.available,
+        L.uniformCondition[s.condition] || s.condition, s.skuCode, t.received, t.handedOver, t.returned, t.adjusted, t.disposed,
+        s.stock.onHand, s.stock.reserved, s.stock.available,
         s.stock.minimumStock, L.stock[s.stock.status] || s.stock.status, m.unit, m.referencePrice, m.countsTowardQuota,
         m.appliesTo, m.active && s.active
       ]);
@@ -215,7 +217,8 @@ function exportUniformStockCsv_(filters) {
   return {
     fileBase: 'ton-kho-dong-phuc',
     header: [
-      'Mã mẫu', 'Mẫu', 'Loại', 'Giới tính', 'Size', 'Tình trạng hàng', 'Mã hàng', 'Tồn thực tế', 'Đang giữ chỗ', 'Khả dụng',
+      'Mã mẫu', 'Mẫu', 'Loại', 'Giới tính', 'Size', 'Tình trạng hàng', 'Mã hàng', 'Tồn đầu kỳ (gồm nhập bổ sung)', 'Đã bàn giao',
+      'Trả về kho', 'Kiểm kê (±)', 'Thanh lý', 'Tồn thực tế', 'Đang giữ chỗ', 'Khả dụng',
       'Tồn tối thiểu', 'Tình trạng tồn', 'ĐVT', 'Giá tham khảo (VND)', 'Tính tiêu chuẩn năm', 'Đối tượng sử dụng', 'Đang dùng'
     ],
     rows: capped.rows,

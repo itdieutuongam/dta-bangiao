@@ -93,6 +93,11 @@ function vppImportPlan_(rows, options, requestId, withSuggestions) {
   var deterministic = function (row) { return requestId ? uuidFrom_('vpp-import|' + requestId + '|' + row.line + '|' + row.name) : ''; };
 
   rows.forEach(function (row) {
+    // Đồng phục (áo) chỉ quản lý ở module Đồng phục — không bao giờ vào văn phòng phẩm (thống nhất 17/11/2026).
+    if (isUniformLikeName_(row.name)) {
+      plan.skipped.push({ line: row.line, name: row.name, reason: 'Đồng phục (áo) quản lý ở module Đồng phục — không nhập vào văn phòng phẩm' });
+      return;
+    }
     var product = null;
     var how = '';
     // Lần áp dụng trước (cùng mã thao tác) đã tạo sản phẩm cho dòng này → coi như đã khớp.

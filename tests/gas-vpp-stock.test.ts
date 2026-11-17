@@ -272,4 +272,26 @@ describe('VPP — cập nhật danh mục + tồn kho từ Excel', () => {
     expect(bad.error?.code).toBe('VALIDATION_ERROR');
     expect(Object.keys(bad.error?.details?.fieldErrors ?? {})).toEqual(expect.arrayContaining(['rows.0.code', 'rows.0.name', 'rows.1.stock']));
   });
+
+  it('[THỐNG NHẤT 17/11/2026] đồng phục (áo) chỉ ở module Đồng phục: nhập Excel bỏ qua dòng áo, không thêm / đổi tên sản phẩm VPP thành "Áo …"', () => {
+    const env = vppEnv();
+    const plan = env.admin('vppImportPlan', {
+      rows: [row(2, 'AOCT', 'Áo Công Trình', { stock: 29 }), row(3, '', 'ao thun DTA size XL', { stock: 16 }), row(4, 'G1', 'Giấy than', { stock: 2 })],
+      options: { setStock: true },
+    }).data.plan;
+    expect(plan.summary).toMatchObject({ create: 1, skipped: 2 });
+    expect(plan.skipped.map((s: { line: number; reason: string }) => [s.line, s.reason])).toEqual([
+      [2, expect.stringContaining('module Đồng phục')],
+      [3, expect.stringContaining('module Đồng phục')],
+    ]);
+
+    const created = env.admin('vppSaveProduct', { productName: 'Áo thun DTA - SIZE XL', unit: 'Cái', clientRequestId: rid() });
+    expect(created.error?.code).toBe('VALIDATION_ERROR');
+    expect(created.error?.details?.fieldErrors?.productName).toContain('module Đồng phục');
+    // "Áo" phải là một từ riêng: "Aolong …" vẫn là văn phòng phẩm bình thường
+    expect(env.admin('vppSaveProduct', { productName: 'Aolong bìa còng', unit: 'Cái', clientRequestId: rid() }).ok).toBe(true);
+    const lighter = product(env, 'Hột quẹt');
+    const renamed = env.admin('vppSaveProduct', { productId: lighter.productId, productName: 'Áo mưa', unit: lighter.unit });
+    expect(renamed.error?.details?.fieldErrors?.productName).toContain('module Đồng phục');
+  });
 });

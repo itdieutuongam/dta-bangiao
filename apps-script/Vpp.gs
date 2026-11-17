@@ -340,8 +340,8 @@ function allocationStockMap_(productIds, store) {
  * Bản đọc (không khóa, không ghi) cho các trang xem: số tồn / giữ chỗ theo SỔ biến động thay cho số trên sheet — đúng số mà thao
  * tác ghi sẽ dùng (ví dụ form tạo phiếu không hiện "khả dụng 10" khi thực tế theo sổ chỉ còn 7). Trả về bản sao stockMap.
  */
-function ledgerStockMap_(stockMap, productIds, store) {
-  var ledger = stockFromLedger_(productIds, store);
+function ledgerStockMap_(stockMap, productIds, store, ledger) {
+  ledger = ledger || stockFromLedger_(productIds, store);
   var out = {};
   Object.keys(stockMap).forEach(function (pid) {
     var s = stockMap[pid];
@@ -609,13 +609,23 @@ function stockFromLedger_(productIds, store) {
     var pid = String(m.product_id || '').toLowerCase();
     if (!isUuid_(pid) || (wanted && !wanted[pid])) return;
     var q = Number(m.quantity) || 0;
-    var s = out[pid] || (out[pid] = { onHand: 0, reserved: 0, count: 0 });
+    // totals: số cộng dồn theo loại biến động — received = tồn đầu kỳ + nhập bổ sung (INITIAL + IN), handedOver = xuất theo phiếu
+    // bàn giao đã ký (OUT), issued = xuất theo phiếu xuất kho (ISSUE), returned / disposed, adjusted = tổng chênh lệch kiểm kê (±).
+    var s = out[pid] || (out[pid] = {
+      onHand: 0, reserved: 0, count: 0,
+      totals: { received: 0, handedOver: 0, issued: 0, returned: 0, disposed: 0, adjusted: 0 }
+    });
     s.count++;
     if (m.movement_type === MOVEMENT_TYPES.INITIAL || m.movement_type === MOVEMENT_TYPES.IN ||
         m.movement_type === MOVEMENT_TYPES.ADJUSTMENT || m.movement_type === MOVEMENT_TYPES.RETURN) {
       s.onHand += q;
+      if (m.movement_type === MOVEMENT_TYPES.ADJUSTMENT) s.totals.adjusted += q;
+      else if (m.movement_type === MOVEMENT_TYPES.RETURN) s.totals.returned += q;
+      else s.totals.received += q;
     } else if (m.movement_type === MOVEMENT_TYPES.DISPOSE || m.movement_type === MOVEMENT_TYPES.ISSUE) {
       s.onHand -= q;
+      if (m.movement_type === MOVEMENT_TYPES.ISSUE) s.totals.issued += q;
+      else s.totals.disposed += q;
     } else if (m.movement_type === MOVEMENT_TYPES.RESERVE) {
       s.reserved += q;
     } else if (m.movement_type === MOVEMENT_TYPES.RELEASE) {
@@ -623,6 +633,7 @@ function stockFromLedger_(productIds, store) {
     } else if (m.movement_type === MOVEMENT_TYPES.OUT) {
       s.onHand -= q;
       s.reserved -= q;
+      s.totals.handedOver += q;
     }
   });
   return out;
@@ -1078,6 +1089,16 @@ function apiVppListProducts_(q) {
   return { products: list };
 }
 
+/**
+ * Tên sản phẩm là đồng phục / áo ("Áo …", "ao …") — khớp isUniformLike của shared/vppImport.ts. Đồng phục chỉ quản lý ở module
+ * Đồng phục (mẫu × size), không thêm vào văn phòng phẩm (thống nhất 17/11/2026).
+ */
+function isUniformLikeName_(name) {
+  return /^(áo|ao)(\s|$)/.test(String(name || '').normalize('NFC').toLowerCase().trim());
+}
+
+var UNIFORM_NOT_IN_VPP_ = 'Đồng phục / áo quản lý ở module Đồng phục (Đồng phục → Tồn kho & mẫu) — không thêm vào văn phòng phẩm.';
+
 function validateProductFields_(data, requireName) {
   var errors = {};
   var name = cleanLine_(data.productName);
@@ -1113,6 +1134,7 @@ function apiVppSaveProduct_(data) {
   var productId = String(data.productId || '').toLowerCase();
   var isNew = !productId;
   var fields = validateProductFields_(data, true);
+  if (isNew && isUniformLikeName_(fields.productName)) throw validationError_({ productName: UNIFORM_NOT_IN_VPP_ });
   var status = data.catalogStatus ? String(data.catalogStatus).toUpperCase() : '';
   if (status && !CATALOG_STATUS[status]) throw validationError_({ catalogStatus: 'Trạng thái danh mục không hợp lệ' });
   if (isNew && status === CATALOG_STATUS.PENDING_APPROVAL) {
@@ -1156,6 +1178,10 @@ function apiVppSaveProduct_(data) {
     } else {
       var found = requireProduct_(productId);
       var current = productFromRow_(found.record);
+      // Đổi tên thành "Áo …" → chặn như thêm mới (mã áo cũ đã ngừng dùng vẫn sửa ghi chú / trạng thái được vì tên không đổi).
+      if (isUniformLikeName_(fields.productName) && exactNameKey_(fields.productName) !== exactNameKey_(current.productName)) {
+        throw validationError_({ productName: UNIFORM_NOT_IN_VPP_ });
+      }
       var stock = loadStockMap_()[productId];
       // Số đang giữ chỗ theo SỔ biến động (số trên sheet có thể cũ / bị sửa tay → lưu trữ nhầm sản phẩm đang được giữ chỗ).
       var held = allocationStockMap_([productId])[productId];

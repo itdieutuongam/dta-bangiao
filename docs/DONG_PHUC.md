@@ -80,9 +80,23 @@ Nhân viên nghỉ việc (`NHAN_VIEN.status = INACTIVE`): hồ sơ đồng ph�
 
 ### 2.3. Nhập kho, kiểm kê, thanh lý
 
-*Tồn kho & mẫu*: mỗi mẫu là một bảng size × tình trạng. Bấm vào ô → **Nhập thêm** (lý do: Mua / đặt may mới · Tồn đầu kỳ ·
-Chuyển kho · Khác), **Kiểm kê** (nhập số đếm thực tế — bắt buộc lý do), **Thanh lý** (hư hỏng, lỗi may; không thấp hơn số đang giữ
-chỗ). Mọi thao tác ghi sổ biến động kèm người thực hiện; xem ở *Lịch sử kho* (lọc theo mẫu / mặt hàng / loại / ngày, xuất CSV).
+**Đồng phục chỉ quản lý ở module này** (thống nhất 17/11/2026): văn phòng phẩm không nhận sản phẩm tên “Áo …” (thêm mới, đổi tên,
+nhập Excel đều chặn và chỉ sang đây). Các mã áo cũ trong VPP (Áo bảo hộ - DTA 29, Áo thun DTA XL 17 / 2XL 9 / L 0) đã kiểm kê về 0 và
+ngừng dùng — số cũ ghi trong lý do kiểm kê để đối chiếu khi nhập tồn đầu kỳ ở đây.
+
+*Tồn kho & mẫu*: mỗi mẫu là một bảng, **mỗi dòng một size** (và tình trạng — hàng đã qua sử dụng có nhãn “đã qua SD”):
+
+| Cột | Ý nghĩa |
+|---|---|
+| **Tồn đầu kỳ** | Số nhập lần đầu **cộng mọi lần nhập bổ sung** — không giảm khi bàn giao. Ví dụ: đầu kỳ 30, sau đó nhập bổ sung 10 → 40 |
+| **Đã bàn giao** | Số đã giao theo phiếu **đã ký** (phiếu chờ ký chỉ “giữ chỗ”, chưa tính) |
+| **Khả dụng** | `Tồn đầu kỳ − Đã bàn giao` ± trả về / kiểm kê / thanh lý − đang giữ chỗ — ghi chú nhỏ dưới số khi có các phần ± này để phép cộng luôn khớp. Ví dụ: 30 − 2 = 28; nhập bổ sung 10 → 38 |
+
+Nút **⋯** ở cuối dòng → **Nhập thêm** (lý do: *Tồn đầu kỳ* — tự chọn khi size chưa từng nhập · *Nhập bổ sung (mua / đặt may mới)*
+· Chuyển kho · Khác; hộp thoại hiện trước “Sau khi nhập: Tồn đầu kỳ … · Khả dụng …”), **Kiểm kê** (nhập số đếm thực tế — bắt buộc lý
+do), **Thanh lý** (hư hỏng, lỗi may; không thấp hơn số đang giữ chỗ). Tồn đầu kỳ và nhập bổ sung đều cộng vào cả *Tồn đầu kỳ* lẫn
+*Khả dụng*. Mọi thao tác ghi sổ biến động kèm người thực hiện; xem ở *Lịch sử kho* (lọc theo mẫu / mặt hàng / loại / ngày, xuất CSV —
+CSV tồn kho có đủ các cột Tồn đầu kỳ, Đã bàn giao, Trả về, Kiểm kê, Thanh lý, Tồn thực tế, Đang giữ chỗ, Khả dụng).
 
 ## 3. Tiêu chuẩn năm
 

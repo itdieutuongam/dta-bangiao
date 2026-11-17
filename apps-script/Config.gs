@@ -560,7 +560,7 @@ var RETURN_REASONS = {
   KHAC: 'Khác'
 };
 /** Lý do nhập kho đồng phục. TON_DAU_KY ghi movement INITIAL, còn lại ghi IN. */
-var UNIFORM_STOCK_IN_REASONS = { MUA_MOI: 'Mua / đặt may mới', TON_DAU_KY: 'Tồn đầu kỳ', CHUYEN_KHO: 'Chuyển kho', KHAC: 'Khác' };
+var UNIFORM_STOCK_IN_REASONS = { MUA_MOI: 'Nhập bổ sung (mua / đặt may mới)', TON_DAU_KY: 'Tồn đầu kỳ', CHUYEN_KHO: 'Chuyển kho', KHAC: 'Khác' };
 /** Size: chữ in hoa / số / dấu gạch (S, XL, 3XL, 38, FREE) — khớp UNIFORM_SIZE_PATTERN (shared/uniform.ts). */
 var UNIFORM_SIZE_PATTERN_ = /^[A-Z0-9][A-Z0-9-]{0,9}$/;
 var DEFAULT_UNIFORM_SIZES = ['S', 'M', 'L', 'XL', 'XXL'];

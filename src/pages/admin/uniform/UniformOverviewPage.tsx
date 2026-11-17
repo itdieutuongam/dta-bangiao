@@ -78,7 +78,12 @@ export default function UniformOverviewPage() {
       {d && (
         <>
           <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
-            <Tile label="Khả dụng trong kho" value={d.counts.available.toLocaleString('vi-VN')} hint={`Tồn ${d.counts.onHand} · đang giữ ${d.counts.reserved}`} to="/admin/dong-phuc/ton-kho" />
+            <Tile
+              label="Khả dụng trong kho"
+              value={d.counts.available.toLocaleString('vi-VN')}
+              hint={`Tồn đầu kỳ ${d.counts.received ?? d.counts.onHand} · đã bàn giao ${d.counts.handedOver ?? 0}${d.counts.reserved ? ` · đang giữ ${d.counts.reserved}` : ''}`}
+              to="/admin/dong-phuc/ton-kho"
+            />
             <Tile label="Size hết hàng (hàng mới)" value={d.counts.outOfStockSkus} tone={d.counts.outOfStockSkus ? 'bad' : 'good'} hint={`Sắp hết: ${d.counts.lowStockSkus}`} to="/admin/dong-phuc/ton-kho" />
             <Tile label="Đang cho mượn" value={d.counts.loansOutstanding} tone={d.counts.loansOverdue ? 'warn' : 'neutral'} hint={`Quá hạn: ${d.counts.loansOverdue}`} to="/admin/dong-phuc/muon-tra" />
             <Tile label={`Đã cấp năm ${d.year}`} value={d.counts.issuedThisYear} hint={`Phiếu chờ ký: ${d.counts.pendingHandovers}`} to="/admin/dong-phuc/nhan-vien" />

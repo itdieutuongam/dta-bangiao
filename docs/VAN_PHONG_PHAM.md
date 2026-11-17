@@ -186,7 +186,9 @@ duyệt** (`src/utils/xlsx.ts`, không gửi file lên máy chủ), chuẩn hóa
 - mã: bỏ khoảng trắng, chữ hoa; mã không hợp lệ (“Cái”, “G”) hoặc **một mã dùng cho hai mặt hàng** (vd `SP000058` cho A3 70 và 80 gsm)
   → mặt hàng sau được cấp mã `VPP-xxxx`;
 - tồn của mã dùng chung lấy theo dòng tồn **cùng tên** (công thức tra cứu của file gán cùng số cho cả hai);
-- dòng **“Áo …”** là đồng phục → tách riêng, gợi ý nhập ở *Đồng phục → Tồn kho & mẫu* (tích “Vẫn nhập…” nếu muốn để trong VPP).
+- dòng **“Áo …”** là đồng phục → tách riêng, **không bao giờ** nhập vào VPP (máy chủ cũng bỏ qua); số tồn của các dòng này hiện để
+  nhập ở *Đồng phục → Tồn kho & mẫu → Nhập kho → Tồn đầu kỳ*. Thêm / đổi tên sản phẩm VPP thành “Áo …” cũng bị chặn — đồng phục chỉ
+  quản lý ở module Đồng phục ([DONG_PHUC.md §2.3](DONG_PHUC.md#23-nhập-kho-kiểm-kê-thanh-lý)).
 
 **Xem trước** (không ghi): khớp sản phẩm có sẵn theo **mã** → theo **tên** (giữ dấu); dòng mới có tên gần giống sản phẩm có sẵn được
 **gợi ý ghép** (chọn “Cập nhật …” thay vì “Thêm mới” — dùng để giữ định mức / lịch sử của sản phẩm cũ). Bảng: thêm mới, cập nhật (mã /

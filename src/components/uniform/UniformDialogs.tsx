@@ -12,6 +12,7 @@ import {
 } from '../../../shared/schemas';
 import {
   DEFAULT_UNIFORM_SIZES,
+  EMPTY_UNIFORM_TOTALS,
   EMPLOYEE_GENDER_LABELS,
   EMPLOYEE_GENDERS,
   RETURN_REASON_LABELS,
@@ -309,6 +310,7 @@ export function UniformStockInDialog({
   open,
   model,
   initialSize,
+  initialCondition,
   onClose,
   onDone,
   onStale,
@@ -316,6 +318,7 @@ export function UniformStockInDialog({
   open: boolean;
   model: UniformStockModel | null;
   initialSize?: string;
+  initialCondition?: UniformCondition;
   onClose: () => void;
   onDone: (sku: UniformSku, duplicate: boolean) => void;
   onStale?: () => void;
@@ -335,18 +338,21 @@ export function UniformStockInDialog({
   useLayoutEffect(() => {
     if (!open) return;
     const firstSize = initialSize && model?.sizes.includes(initialSize) ? initialSize : (model?.sizes[0] ?? '');
+    const firstCondition = initialCondition ?? 'NEW';
     setSize(firstSize);
-    setCondition('NEW');
+    setCondition(firstCondition);
     setQuantity('1');
-    const empty = model ? model.skus.every((s) => !s.stock.onHand) : false;
-    setReasonType(empty ? 'TON_DAU_KY' : 'MUA_MOI');
+    // Mặt hàng chưa từng nhập → "Tồn đầu kỳ"; đã có → "Nhập bổ sung" (cả hai đều cộng vào Tồn đầu kỳ và Khả dụng).
+    const target = model?.skus.find((s) => s.size === firstSize && s.condition === firstCondition);
+    const neverReceived = !target || ((target.totals?.received ?? 0) === 0 && !target.stock.onHand);
+    setReasonType(neverReceived ? 'TON_DAU_KY' : 'MUA_MOI');
     setUnitPrice(numberToInput(model?.referencePrice));
     setDate(todayIsoDate());
     setNote('');
     setResumed(model ? operation.begin(model.modelId) : false);
     reset();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, model?.modelId, initialSize]);
+  }, [open, model?.modelId, initialSize, initialCondition]);
 
   async function save() {
     if (saving || !model) return;
@@ -387,6 +393,9 @@ export function UniformStockInDialog({
   }
 
   const current = model?.skus.find((s) => s.size === size && s.condition === condition);
+  const totals = current?.totals ?? EMPTY_UNIFORM_TOTALS;
+  const adding = parseViNumber(quantity);
+  const addValid = adding !== null && Number.isInteger(adding) && adding > 0;
 
   return (
     <ConfirmDialog
@@ -418,10 +427,22 @@ export function UniformStockInDialog({
             ))}
           </select>
         </Field>
-        <p className="rounded-lg bg-stone-50 px-3 py-2 text-sm text-stone-700 sm:col-span-2">
-          Tồn hiện tại ({size} · {UNIFORM_CONDITION_LABELS[condition]}): <Qty value={current ? current.stock.onHand : 0} unit={model?.unit} /> · Đang giữ
-          chỗ: {current?.stock.reserved ?? 0}
-        </p>
+        <div className="rounded-lg bg-stone-50 px-3 py-2 text-sm text-stone-700 sm:col-span-2" aria-live="polite">
+          <p>
+            {size} · {UNIFORM_CONDITION_LABELS[condition]} — Tồn đầu kỳ: <strong className="tabular-nums">{totals.received}</strong> · Đã bàn giao:{' '}
+            <strong className="tabular-nums">{totals.handedOver}</strong> · Khả dụng:{' '}
+            <strong className="tabular-nums">
+              <Qty value={current ? current.stock.available : 0} unit={model?.unit} />
+            </strong>
+            {current && current.stock.reserved > 0 ? ` · đang giữ chỗ ${current.stock.reserved}` : ''}
+          </p>
+          {addValid && (
+            <p className="mt-1 text-xs text-emerald-800">
+              Sau khi nhập {adding}: Tồn đầu kỳ <strong className="tabular-nums">{totals.received + adding}</strong> · Khả dụng{' '}
+              <strong className="tabular-nums">{(current?.stock.available ?? 0) + adding}</strong>
+            </p>
+          )}
+        </div>
         <Field id="dp-in-qty" label="Số lượng" required error={errors.quantity}>
           <NumberInput
             id="dp-in-qty"

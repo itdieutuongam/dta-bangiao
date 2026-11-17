@@ -62,7 +62,6 @@ export default function VppImportPage() {
   const [readError, setReadError] = useState<string | null>(null);
   const [setStock, setSetStock] = useState(true);
   const [archiveMissing, setArchiveMissing] = useState(false);
-  const [includeUniforms, setIncludeUniforms] = useState(false);
   const [matches, setMatches] = useState<Record<number, string>>({});
   const [plan, setPlan] = useState<VppImportPlan | null>(null);
   const [planKey, setPlanKey] = useState('');
@@ -75,12 +74,12 @@ export default function VppImportPage() {
   const requestId = useRef(newRequestId());
   useUnsavedChangesWarning(Boolean(plan) && !result && !applying);
 
+  // Dòng áo (đồng phục) KHÔNG bao giờ vào văn phòng phẩm — đồng phục chỉ quản lý ở module Đồng phục (thống nhất 17/11/2026).
   const rows: VppImportRow[] = useMemo(() => {
     if (!loaded) return [];
-    const base = includeUniforms ? [...loaded.parsed.rows, ...loaded.parsed.uniforms].sort((a, b) => a.line - b.line) : loaded.parsed.rows;
-    return base.map((r) => (matches[r.line] ? { ...r, matchProductId: matches[r.line] } : r));
-  }, [loaded, includeUniforms, matches]);
-  const currentKey = JSON.stringify([loaded?.fileName, loaded?.catalogSheet, loaded?.stockSheet, setStock, archiveMissing, includeUniforms, matches]);
+    return loaded.parsed.rows.map((r) => (matches[r.line] ? { ...r, matchProductId: matches[r.line] } : r));
+  }, [loaded, matches]);
+  const currentKey = JSON.stringify([loaded?.fileName, loaded?.catalogSheet, loaded?.stockSheet, setStock, archiveMissing, matches]);
   const stale = Boolean(plan) && planKey !== currentKey;
 
   async function parse(workbook: XlsxWorkbook, fileName: string, catalogSheet: string, stockSheet: string) {
@@ -243,7 +242,10 @@ export default function VppImportPage() {
             {p.uniforms.length > 0 && (
               <div className="rounded-lg border border-sky-200 bg-sky-50 p-3 text-sky-950">
                 <p className="flex items-center gap-2 font-semibold">
-                  <Shirt className="size-4" aria-hidden="true" /> {p.uniforms.length} dòng là đồng phục (áo) — nên nhập ở module Đồng phục theo mẫu × size
+                  <Shirt className="size-4" aria-hidden="true" /> {p.uniforms.length} dòng là đồng phục (áo) — KHÔNG nhập vào văn phòng phẩm
+                </p>
+                <p className="mt-0.5 text-xs">
+                  Đồng phục chỉ quản lý ở module Đồng phục (mẫu × size): nhập các số dưới đây bằng “Nhập kho → Tồn đầu kỳ” ở trang Tồn kho & mẫu.
                 </p>
                 <ul className="mt-1 list-disc pl-5">
                   {p.uniforms.map((u) => (
@@ -252,15 +254,9 @@ export default function VppImportPage() {
                     </li>
                   ))}
                 </ul>
-                <div className="mt-2 flex flex-wrap items-center gap-3">
-                  <Link to="/admin/dong-phuc/ton-kho" className="font-semibold underline">
-                    Mở Đồng phục → Tồn kho & mẫu
-                  </Link>
-                  <label className="flex items-center gap-2">
-                    <input type="checkbox" className="size-4 accent-brand-700" checked={includeUniforms} onChange={(e) => setIncludeUniforms(e.target.checked)} />
-                    Vẫn nhập các dòng áo vào văn phòng phẩm
-                  </label>
-                </div>
+                <Link to="/admin/dong-phuc/ton-kho" className="mt-2 inline-block font-semibold underline">
+                  Mở Đồng phục → Tồn kho & mẫu
+                </Link>
               </div>
             )}
             {(p.warnings.length > 0 || p.skipped.length > 0) && (
