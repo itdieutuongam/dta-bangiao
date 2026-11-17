@@ -110,7 +110,7 @@ function NormTable({
 
   return (
     <section className="card overflow-hidden" aria-label="Định mức theo phạm vi">
-      <div className="flex gap-1 overflow-x-auto border-b border-stone-200 px-2 pt-2" role="tablist" aria-label="Phạm vi định mức">
+      <div className="flex gap-1 relative overflow-x-auto border-b border-stone-200 px-2 pt-2" role="tablist" aria-label="Phạm vi định mức">
         {data.scopes.map((s) => (
           <button
             key={s.scopeId}
@@ -138,7 +138,7 @@ function NormTable({
         <p className="px-4 pb-6 text-sm text-stone-500">Phạm vi này chưa có định mức.</p>
       ) : (
         <>
-          <div className="hidden overflow-x-auto md:block">
+          <div className="hidden relative overflow-x-auto md:block">
             <table className="w-full text-sm">
               <thead className="bg-stone-50 text-left text-xs font-semibold tracking-wide text-stone-500 uppercase">
                 <tr>

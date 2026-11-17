@@ -1032,13 +1032,20 @@ describe('[v2.1] Kho VPP nhiều mặt hàng, cập nhật từ Excel, đồng p
     await expect.poll(async () => availOf(await sizeButton(check, SHIRT, 'L').getAttribute('aria-label'))).toBe(shirtAvail - 1);
     await check.close();
 
-    // Người nhận ký (có email → mã xác nhận)
+    // Người nhận ký (có email → mã xác nhận), kèm ghi chú khi ký
     const signer = await ctx.newPage();
     await signer.goto(link);
     await signer.getByRole('heading', { name: code }).waitFor();
     await signer.getByText(SHIRT).first().waitFor();
     await signer.getByText('Cho mượn', { exact: false }).first().waitFor();
-    await signOnDesktop(signer, link, code);
+    await signer.getByLabel('Tôi đã kiểm tra và xác nhận đã nhận các nội dung trên.').check();
+    await signer.locator('#confirm-comment').fill('Đã nhận đủ áo; áo thun mượn sẽ trả trong tuần sau.');
+    await enterOtp(signer, code);
+    const canvas = signer.locator('canvas[aria-label^="Khung ký tên"]');
+    await canvas.scrollIntoViewIfNeeded();
+    await drawWithMouse(signer, canvas);
+    await signer.getByRole('button', { name: 'XÁC NHẬN BÀN GIAO', exact: true }).click();
+    await signer.getByRole('heading', { name: 'BIÊN BẢN ĐÃ ĐƯỢC XÁC NHẬN' }).waitFor({ timeout: 30_000 });
     await signer.close();
 
     // Mượn / trả: dòng cho mượn đang giữ → ghi nhận trả, nhập lại kho dạng hàng đã qua sử dụng
@@ -1061,6 +1068,22 @@ describe('[v2.1] Kho VPP nhiều mặt hàng, cập nhật từ Excel, đồng p
     expect(availOf(await sizeButton(after, SHIRT, 'L').getAttribute('aria-label'))).toBe(shirtAvail - 1);
     expect(usedOf(await sizeButton(after, POLO, 'L').getAttribute('aria-label'))).toBe(poloUsed + 1);
     await after.close();
+  });
+
+  it('[PRODUCTION 17/11/2026] danh sách biên bản có ghi chú khi ký: chữ sr-only trong bảng không làm cả trang tràn ngang (1024 / 1064px)', async () => {
+    for (const width of [1024, 1064]) {
+      const c = await browser.newContext({ viewport: { width, height: 800 }, locale: 'vi-VN', storageState: await ctx.storageState() });
+      const p = await c.newPage();
+      await p.goto(`${BASE}/admin/ban-giao`);
+      await p.getByText('Ghi chú khi ký:').first().waitFor({ state: 'attached' });
+      await p.waitForLoadState('networkidle');
+      // Dữ liệu thật (tên, phòng ban dài) đẩy cột Trạng thái ra ngoài màn hình; dữ liệu mẫu ngắn → ép bảng rộng như thật.
+      await p.addStyleTag({ content: 'main table { min-width: 1600px; }' });
+      // Bảng rộng hơn khung → cuộn trong khung của bảng, không cuộn cả trang
+      expect(await p.evaluate(() => document.querySelector('table')!.parentElement!.scrollWidth > document.querySelector('table')!.parentElement!.clientWidth), `bảng phải rộng hơn khung @ ${width}px`).toBe(true);
+      expect(await horizontalOverflow(p), `/admin/ban-giao @ ${width}px`).toBeLessThanOrEqual(0);
+      await c.close();
+    }
   });
 
   it('mọi trang quản trị (kể cả trang mới) mở được, không lỗi trình duyệt, không tràn ngang ở 1440px và 375px', async () => {

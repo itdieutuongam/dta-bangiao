@@ -92,7 +92,7 @@ export default function AdminEmployeesPage() {
         {list.data && filtered.length === 0 && <EmptyState title="Không có nhân viên phù hợp." />}
         {filtered.length > 0 && (
           <>
-            <div className="hidden overflow-x-auto md:block">
+            <div className="hidden relative overflow-x-auto md:block">
               <table className="w-full text-sm">
                 <thead className="bg-stone-50 text-left text-xs font-semibold tracking-wide text-stone-500 uppercase">
                   <tr>

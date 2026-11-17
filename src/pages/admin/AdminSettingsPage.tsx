@@ -21,13 +21,15 @@ export default function AdminSettingsPage() {
     if (system.status === 'error' && isApiError(system.error) && system.error.status === 401) handleError(system.error);
   }, [system.status, system.error, handleError]);
 
+  const gas = system.data?.appsScript;
+  const upToDate = Boolean(gas && gas.schemaReady && gas.version === system.data?.worker.version);
   return (
     <div className="mx-auto max-w-5xl space-y-5 px-4 py-6">
       <PageHeader title="Cài đặt" description={user ? `Đăng nhập: ${user.name} (${user.username})` : 'Cấu hình hệ thống'} />
       {system.status === 'loading' && !system.data && <LoadingCard lines={8} />}
       {system.status === 'error' && !system.data && <ErrorState title="Không tải được cấu hình." error={system.error} onRetry={system.reload} />}
       {system.data && <SettingsBody info={system.data} />}
-      <UpgradeGuide />
+      {system.data && <UpgradeGuide upToDate={upToDate} />}
     </div>
   );
 }
@@ -131,7 +133,9 @@ function SettingsBody({ info }: { info: SystemInfo }) {
               </dl>
               <ul className="space-y-1.5">
                 <Check ok={gas.schemaReady}>
-                  {gas.schemaReady ? 'Cơ sở dữ liệu đã nâng cấp (module Văn phòng phẩm sẵn sàng).' : 'Chưa nâng cấp cơ sở dữ liệu — làm theo hướng dẫn bên dưới.'}
+                  {gas.schemaReady
+                    ? `Cấu trúc dữ liệu v${gas.schemaVersion} đã cập nhật (văn phòng phẩm, đồng phục, phiếu nhập / xuất kho).`
+                    : 'Chưa nâng cấp cấu trúc dữ liệu — làm theo hướng dẫn bên dưới.'}
                 </Check>
                 <Check ok={gas.version === info.worker.version}>
                   {gas.version === info.worker.version ? 'Phiên bản Apps Script khớp Worker.' : 'Phiên bản Apps Script khác Worker — cập nhật code Apps Script.'}
@@ -151,7 +155,7 @@ function SettingsBody({ info }: { info: SystemInfo }) {
               </div>
               {gas.pendingChanges.length > 0 && (
                 <div className="mt-3 rounded-lg bg-amber-50 p-3 text-sm text-amber-900">
-                  <p className="font-semibold">Thay đổi cấu trúc chờ áp dụng ({gas.pendingChanges.length}):</p>
+                  <p className="font-semibold">Cần xử lý ở Google Sheet / Apps Script ({gas.pendingChanges.length}):</p>
                   <ul className="mt-1 list-disc space-y-0.5 pl-5 text-xs">
                     {gas.pendingChanges.map((c) => (
                       <li key={c}>{c}</li>
@@ -281,46 +285,41 @@ function EmailSection({ notify }: { notify: NonNullable<SystemInfo['appsScript']
   );
 }
 
-function UpgradeGuide() {
+/** Quy trình nâng cấp phiên bản (chi tiết: docs/UPGRADE_V2.1.md). Đã cập nhật đủ → thu gọn, chỉ để tham khảo. */
+function UpgradeGuide({ upToDate }: { upToDate: boolean }) {
   return (
-    <section className="card p-4 sm:p-6" aria-labelledby="upgrade-title">
-      <h2 id="upgrade-title" className="section-title mb-2">
-        Nâng cấp lên v2 (module Văn phòng phẩm) — làm theo thứ tự
-      </h2>
-      <p className="mb-3 text-sm text-stone-600">
-        Chủ sở hữu Google Sheet thực hiện. Các bước đều an toàn khi chạy lại; hệ thống tự sao lưu toàn bộ Google Sheet trước khi đổi cấu trúc, không xóa
-        dữ liệu cũ.
+    <details className="card p-4 sm:p-6" open={!upToDate}>
+      <summary className="section-title cursor-pointer">
+        {upToDate ? 'Quy trình nâng cấp phiên bản (tham khảo cho lần sau)' : 'Cần nâng cấp — làm theo thứ tự'}
+      </summary>
+      <p className="mt-2 mb-3 text-sm text-stone-600">
+        Chủ sở hữu Google Sheet thực hiện, nên làm ngoài giờ. Thứ tự: <strong>Apps Script trước, Worker sau</strong>. Các bước an toàn khi chạy lại; hệ
+        thống tự sao lưu Google Sheet trước khi đổi cấu trúc, không xóa dữ liệu cũ. Chi tiết trong tài liệu <code>docs/UPGRADE_V2.1.md</code>.
       </p>
       <ol className="list-decimal space-y-2 pl-5 text-sm text-stone-800">
         <li>
-          Mở Google Sheet → <strong>Tiện ích mở rộng → Apps Script</strong>, thay toàn bộ code bằng file <code>dist/apps-script/DTA_Handover.gs</code> mới
-          (tạo bằng lệnh <code>npm run gas:bundle</code>), bấm Lưu.
+          Google Sheet → menu <strong>DTA Handover → Sao lưu ngay</strong>.
         </li>
         <li>
-          <strong>Triển khai → Quản lý triển khai → Chỉnh sửa → Phiên bản: Phiên bản mới → Triển khai</strong> (giữ nguyên URL Web App). Nếu Google hỏi
-          quyền (có thêm quyền gửi email cho mã xác nhận khi ký) — bấm Cho phép.
+          <strong>Tiện ích mở rộng → Apps Script</strong>: thay toàn bộ code bằng file <code>dist/apps-script/DTA_Handover.gs</code> (lệnh{' '}
+          <code>npm run gas:bundle</code>) → <strong>Lưu</strong>. Web App vẫn chạy bản cũ cho tới bước 4.
         </li>
         <li>
-          Trên Google Sheet, menu <strong>DTA Handover → Nâng cấp module Văn phòng phẩm (v2)</strong>. Hệ thống sao lưu, thêm cột / sheet mới và đánh dấu
-          cấu trúc v2.
+          Tải lại Google Sheet → menu <strong>Kiểm tra cấu hình</strong> (dòng đầu phải là “✓ Code Apps Script đầy đủ, một phiên bản”) →{' '}
+          <strong>Nâng cấp module Đồng phục (v3)</strong>.
         </li>
         <li>
-          Menu <strong>DTA Handover → Khởi tạo định mức VPP</strong>, sau đó <strong>Nhập tồn đầu kỳ VPP (chạy 1 lần)</strong>. Chạy lại không tạo trùng,
-          không ghi đè dữ liệu đã sửa.
+          Apps Script: <strong>Triển khai → Quản lý các bản triển khai → Chỉnh sửa → Phiên bản: Phiên bản mới → Triển khai</strong> — giữ nguyên URL, không
+          tạo bản triển khai mới.
         </li>
         <li>
-          Menu <strong>DTA Handover → Khóa sheet hệ thống</strong> để chỉ hệ thống được ghi vào các sheet dữ liệu.
+          Menu <strong>Khởi tạo danh mục đồng phục</strong> → <strong>Khóa sheet hệ thống</strong> → <strong>Kiểm tra cấu hình</strong>: mọi dòng ✓ (trừ cảnh
+          báo email nhân viên).
         </li>
         <li>
-          Menu <strong>DTA Handover → Kiểm tra cấu hình</strong>: mọi dòng phải là ✓ — đặc biệt dòng “Gửi email (MailApp)”. Đặt <code>NOTIFY_EMAILS</code> trong
-          CAU_HINH nếu muốn nhận email thông báo.
-        </li>
-        <li>Deploy Worker (Cloudflare) phiên bản mới, rồi mở lại trang này để kiểm tra tất cả mục đều đạt.</li>
-        <li>
-          Vào <strong>Văn phòng phẩm → Dữ liệu cần kiểm tra</strong>: ghép / tạo mới / bỏ qua sản phẩm tồn đầu kỳ, kiểm kê các số lượng chưa rõ, gắn phòng ban
-          với định mức.
+          Deploy Worker (Cloudflare) bản mới (<code>npm run deploy</code>), mở lại trang này: phải thấy “Phiên bản Apps Script khớp Worker”.
         </li>
       </ol>
-    </section>
+    </details>
   );
 }

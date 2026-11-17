@@ -208,7 +208,7 @@ function ListBody({
   return (
     <>
       {/* Desktop: bảng */}
-      <div className="hidden overflow-x-auto md:block">
+      <div className="hidden relative overflow-x-auto md:block">
         <table className="w-full text-left text-sm">
           <thead className="bg-stone-50 text-xs tracking-wide text-stone-500 uppercase">
             <tr>
@@ -288,7 +288,8 @@ function CommentHint({ summary }: { summary: AdminHandoverSummary }) {
   return (
     <span
       className={cn(
-        'mt-1 flex max-w-56 items-start gap-1 text-xs',
+        // relative: chữ sr-only bên trong định vị theo khối này — không thoát khỏi khung cuộn của bảng (tràn ngang cả trang)
+        'relative mt-1 flex max-w-56 items-start gap-1 text-xs',
         summary.status === 'CONFIRMED' ? 'text-sky-800' : 'text-orange-800',
       )}
       title={comment}

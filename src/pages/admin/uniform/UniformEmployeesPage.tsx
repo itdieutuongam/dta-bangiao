@@ -132,7 +132,7 @@ export default function UniformEmployeesPage() {
         {list.status === 'error' && !list.data && <ErrorState className="border-0 shadow-none" title="Không tải được danh sách." error={list.error} onRetry={list.reload} />}
         {list.data && rows.length === 0 && <EmptyState title="Không có nhân viên phù hợp." />}
         {rows.length > 0 && (
-          <div className="overflow-x-auto">
+          <div className="relative overflow-x-auto">
             <table className="w-full min-w-[56rem] text-sm">
               <thead className="bg-stone-50 text-left text-xs font-semibold tracking-wide text-stone-500 uppercase">
                 <tr>

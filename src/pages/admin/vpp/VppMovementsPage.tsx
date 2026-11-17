@@ -157,7 +157,7 @@ export default function VppMovementsPage() {
         {data && data.items.length === 0 && <EmptyState title="Không có biến động phù hợp." />}
         {data && data.items.length > 0 && (
           <>
-            <div className="hidden overflow-x-auto lg:block">
+            <div className="hidden relative overflow-x-auto lg:block">
               <table className="w-full text-sm">
                 <thead className="bg-stone-50 text-left text-xs font-semibold tracking-wide text-stone-500 uppercase">
                   <tr>

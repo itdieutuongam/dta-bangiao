@@ -23,7 +23,7 @@ function VoucherLines({ voucherId }: { voucherId: string }) {
   if (detail.status === 'error' && !detail.data) return <ErrorState className="m-3" title="Không tải được dòng hàng." error={detail.error} onRetry={detail.reload} />;
   const lines = detail.data?.lines ?? [];
   return (
-    <div className="overflow-x-auto px-4 pb-3">
+    <div className="relative overflow-x-auto px-4 pb-3">
       <table className="w-full min-w-[32rem] text-sm">
         <thead className="text-left text-xs text-stone-500">
           <tr>
@@ -98,7 +98,7 @@ function IssueSummaryTable({ data }: { data: VoucherListResponse }) {
         </h2>
         <p className="text-xs text-stone-500">Theo bộ lọc đang chọn (mọi trang) — như sheet “Xuat VPP” của file Excel theo dõi.</p>
       </div>
-      <div className="overflow-x-auto">
+      <div className="relative overflow-x-auto">
         <table className="w-full min-w-[36rem] text-sm">
           <thead className="bg-stone-50 text-left text-xs font-semibold text-stone-500">
             <tr>

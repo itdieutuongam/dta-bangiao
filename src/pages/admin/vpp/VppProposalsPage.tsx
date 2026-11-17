@@ -81,7 +81,7 @@ export default function VppProposalsPage() {
         }
       />
 
-      <div className="flex gap-1.5 overflow-x-auto pb-1" role="tablist" aria-label="Lọc theo trạng thái">
+      <div className="flex gap-1.5 relative overflow-x-auto pb-1" role="tablist" aria-label="Lọc theo trạng thái">
         {(['', ...PROPOSAL_STATUSES] as Array<ProposalStatus | ''>).map((s) => {
           const count = data ? (s ? data.stats[s] : Object.values(data.stats).reduce((a, b) => a + b, 0)) : null;
           return (

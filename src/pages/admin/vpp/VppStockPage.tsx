@@ -168,7 +168,7 @@ export default function VppStockPage() {
         {products.length > 0 && (
           <>
             {/* Bảng — màn hình rộng */}
-            <div className="hidden overflow-x-auto lg:block">
+            <div className="hidden relative overflow-x-auto lg:block">
               <table className="w-full text-sm">
                 <thead className="bg-stone-50 text-left text-xs font-semibold tracking-wide text-stone-500 uppercase">
                   <tr>

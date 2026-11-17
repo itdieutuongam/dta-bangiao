@@ -222,7 +222,7 @@ function ModelCard({ model, onOpen }: { model: UniformStockModel; onOpen: (state
         </div>
       </div>
 
-      <div className="mt-3 overflow-x-auto">
+      <div className="mt-3 relative overflow-x-auto">
         <table className="w-full min-w-max border-separate border-spacing-1 text-sm">
           <thead>
             <tr>
