@@ -89,7 +89,11 @@ Sau khi sửa Sheet: nút **Làm mới dữ liệu** cuối menu quản trị.
 2. Tăng phiên bản (§4). Ghi thay đổi vào tài liệu tương ứng.
 3. **Apps Script trước**: `npm run gas:bundle` → dán đè → Lưu → *Kiểm tra cấu hình* (dòng đầu “✓ Code Apps Script đầy đủ, một phiên
    bản (vX)”) → nếu có đổi cấu trúc: chạy menu nâng cấp → *Quản lý triển khai → Sửa → Phiên bản mới* (giữ URL).
-4. **Worker sau**: merge vào nhánh Workers Builds theo dõi (hoặc `npm run deploy`).
+4. **Worker sau**: đẩy code lên nhánh **`main`** trên GitHub — Cloudflare **Workers Builds** đã nối với repo và **tự build + deploy
+   `main` sau ~2 phút** (xác nhận 17/11/2026: *Workers & Pages → dta-bangiao → Deployments* hiện “Build · main”). Hoặc chạy
+   `npm run deploy` từ máy có quyền (bản đó sẽ bị bản build kế tiếp từ `main` thay thế — luôn giữ `main` = code muốn chạy).
+   ⚠ Vì `main` tự deploy: **không đẩy code mới lên `main` trước khi Apps Script đã cập nhật** (bước 3); làm việc trên nhánh
+   `release/…` rồi mới đưa lên `main`.
 5. Kiểm tra: `/api/health` (`version` mới, mọi thành phần `ok`), *Cài đặt* không có mục cần xử lý mới, tạo + hủy một phiếu thử.
 6. Quay lui: Worker → *Deployments → Rollback*; Apps Script → *Quản lý triển khai → chọn phiên bản cũ* (cấu trúc Sheet chỉ thêm nên
    bản cũ vẫn chạy). Luôn quay lui cả hai.
