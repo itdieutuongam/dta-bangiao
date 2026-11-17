@@ -99,3 +99,21 @@ Theo thứ tự ưu tiên — chi tiết lý do trong [AUDIT_V2.1.md](AUDIT_V2.1
   cột nên bản v2.0 vẫn chạy; phiếu đồng phục đã tạo vẫn nằm nguyên trong Sheet (bản cũ không có giao diện đồng phục).
 - Quay lui Apps Script thì quay lui cả Worker (Worker v2.1 cần Apps Script v2.1).
 - Không cần khôi phục bản sao lưu Sheet trừ khi dữ liệu bị hỏng.
+
+## 5. Nhật ký triển khai production — 17/11/2026
+
+| Giờ | Việc | Kết quả |
+|---|---|---|
+| 13:09 | Sheet → *Sao lưu ngay* | Bản sao “… – backup 2026-11-17 1309” trong `DTA_HANDOVER/backups` |
+| 13:25 | Khóa chia sẻ Sheet (SEC-0): “Bất kỳ ai có đường liên kết – Người chỉnh sửa” → **Hạn chế** | Chỉ còn chủ sở hữu; Web App vẫn chạy (chạy bằng tài khoản chủ) |
+| 13:28 | Dán bản gộp v2.1.0 (12.581 dòng) đè `Mã.gs` của dự án Apps Script gắn với Sheet | *Kiểm tra cấu hình*: ✓ Code v2.1.0 |
+| 13:30 | *Nâng cấp module Đồng phục (v3)* | Sao lưu tự động “… backup trước nâng cấp v3 2026-11-17 1330”; 7 sheet mới, cột mới, sửa `norm_id` (30 định mức hiện lại), `SCHEMA_VERSION = 3` |
+| 13:34 | Web App: cập nhật bản triển khai đang hoạt động → **Phiên bản 3** (giữ URL) | Worker v2.0 vẫn chạy bình thường với Apps Script v2.1 |
+| 13:35 | *Khởi tạo danh mục đồng phục* (7 mẫu, 35 mặt hàng mẫu × size) → *Khóa sheet hệ thống* (12 sheet) → *Kiểm tra cấu hình* | “Cấu hình hợp lệ” (còn cảnh báo email nhân viên) |
+| 13:38 | Worker v2.1.0 (`npm run deploy`, 271 test) | Phiên bản Worker `3da5b300…`; `/api/health` = 2.1.0, mọi thành phần ok |
+| 13:39 | Đổi khóa kết nối: menu *Nhập / đổi khóa kết nối* + `wrangler secret put GAS_SHARED_SECRET` (lệch ~1 giây) | Health ok với khóa mới |
+| 13:59 | Cập nhật VPP từ `Mau_theo_doi_VPP.xlsx` (ghép tay 2 dòng có định mức: nước rửa chén 3.6kg, nước lau kiếng) | Thêm 467, cập nhật 17, đặt tồn 23; xem trước lại = 0 thay đổi |
+| 14:02 | Worker sửa lỗi phát hiện khi kiểm tra production (tràn ngang danh sách biên bản, chữ cũ trang Cài đặt) | Phiên bản Worker `49a29fbd…`; quét 21 trang quản trị: không lỗi console / API, không tràn ngang |
+
+Quay lui: Worker về bản trước (`2ae7ceed…` = v2.0, `3da5b300…` = v2.1 trước sửa giao diện) ở *Deployments*; Apps Script chọn
+**Phiên bản 2** (v2.0) trong *Quản lý các bản triển khai*. Khóa kết nối đã đổi nằm ở Script Properties + Cloudflare (không lưu trong repo).

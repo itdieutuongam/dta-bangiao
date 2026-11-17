@@ -11,11 +11,11 @@ Trạng thái: ✅ đã sửa trong v2.1 · 🟡 sửa một phần · 🛠 vi�
 
 | Mức | Số phát hiện | ✅ | 🟡 | 🛠 / ⏳ |
 |---|---|---|---|---|
-| P0 | 2 | 0 | 1 | 1 |
+| P0 | 2 | 1 | 0 | 1 |
 | P1 | 21 | 12 | 3 | 6 |
 | P2 | 17 | 7 | 6 | 4 |
 | P3 | 21 | 3 | 2 | 16 |
-| **Cộng** | **61** | **22** | **12** | **27** |
+| **Cộng** | **61** | **23** | **11** | **27** |
 
 (Đếm theo mã phát hiện của từng nhóm rà soát — một số mã trùng nội dung giữa các nhóm, ví dụ SEC-1 = GAS-2, OPS-3 = GAS-1.)
 
@@ -23,8 +23,9 @@ Sáu vấn đề quan trọng nhất (đều đang xảy ra trên dữ liệu th
 
 0. **Google Sheet dữ liệu chia sẻ “Bất kỳ ai có đường liên kết – Người chỉnh sửa”** (phát hiện 17/11/2026 khi triển khai, SEC-0) —
    ai có link xem / sửa / xóa được mọi dữ liệu (kể cả biên bản có mật khẩu bị lộ), người đăng nhập Google bất kỳ có link còn mở được
-   Apps Script gắn với Sheet và đọc `BACKEND_SHARED_SECRET`. → v2.1 tự phát hiện (✗ ở *Kiểm tra cấu hình*, mục cần xử lý đầu tiên ở
-   *Cài đặt*); **phải khóa chia sẻ (“Bị hạn chế”) và đổi khóa kết nối**. Thư mục DTA_HANDOVER (PDF, chữ ký) vẫn riêng tư.
+   Apps Script gắn với Sheet và đọc `BACKEND_SHARED_SECRET`. → **đã khóa chia sẻ (“Hạn chế”) và đổi khóa kết nối ngày 17/11/2026**;
+   v2.1 tự phát hiện nếu tái diễn (✗ ở *Kiểm tra cấu hình*, mục cần xử lý đầu tiên ở *Cài đặt*). Thư mục DTA_HANDOVER (PDF, chữ ký)
+   vẫn riêng tư.
 1. **Mã xác nhận khi ký không bảo vệ ai** — 0/47 nhân viên có email nên mọi chữ ký đi đường “không cần mã”: người cầm link (kể cả
    người lập phiếu) ký thay được. → v2.1 cảnh báo rõ ở *Tổng quan*, *Cài đặt*, *Kiểm tra cấu hình*, in cách xác thực lên PDF;
    **cần bổ sung email rồi bật `CONFIRM_OTP = REQUIRED`**.
@@ -69,7 +70,7 @@ Sáu vấn đề quan trọng nhất (đều đang xảy ra trên dữ liệu th
 
 | ID | Mức | Vấn đề | Trạng thái |
 |---|---|---|---|
-| SEC-0 | P0 | Sheet dữ liệu chia sẻ “Bất kỳ ai có đường liên kết – Người chỉnh sửa”: lộ + sửa / xóa được toàn bộ dữ liệu, mở được Apps Script (đọc khóa kết nối) — xem §1 | 🟡 v2.1 tự kiểm tra chia sẻ Sheet + thư mục DTA_HANDOVER (*Kiểm tra cấu hình* ✗, *Cài đặt*) · 🛠 khóa chia sẻ, đổi `BACKEND_SHARED_SECRET` = `GAS_SHARED_SECRET`, xem lịch sử phiên bản Sheet / file lạ trong Apps Script |
+| SEC-0 | P0 | Sheet dữ liệu chia sẻ “Bất kỳ ai có đường liên kết – Người chỉnh sửa”: lộ + sửa / xóa được toàn bộ dữ liệu, mở được Apps Script (đọc khóa kết nối) — xem §1 | ✅ 17/11/2026: đã khóa (“Hạn chế”) + đổi khóa kết nối hai phía ([UPGRADE §5](UPGRADE_V2.1.md#5-nhật-ký-triển-khai-production--17112026)); v2.1 tự kiểm tra chia sẻ Sheet + thư mục DTA_HANDOVER (*Kiểm tra cấu hình* ✗, *Cài đặt*) · 🛠 xem lịch sử phiên bản Sheet nếu nghi bị sửa |
 | SEC-1 | P1 | = GAS-2 (link ký là “vé” duy nhất) | 🟡 như GAS-2 |
 | SEC-2 | P1 | = GAS-3 | ✅ |
 | SEC-3 | P1 | Người sửa được Sheet đọc được `BACKEND_SHARED_SECRET`, gọi thẳng Apps Script với mọi quyền | ⏳ kiến trúc — giảm số người sửa Sheet, tách Apps Script khỏi Sheet (dự án độc lập do tài khoản công ty sở hữu); v2.1 hạn chế hệ quả bằng GAS-4 |
@@ -165,9 +166,8 @@ logic kho. Mã băm nội dung giữ tương thích ngược: biên bản ký b�
 | Bản gộp Apps Script | `npm run gas:bundle` → 563 KB, kiểm cú pháp đạt |
 | Chạy thử cục bộ qua HTTP (`npm run local`) | tạo phiếu đồng phục → mã OTP → ký → chặn ghi chú có mật khẩu → trả đồ mượn → sổ cấp phát → PDF → 4 tệp CSV: đạt |
 | Trình duyệt thật (Chrome, 1366×900 và 390×844) | 10 trang quản trị / đồng phục: không lỗi JavaScript, không tràn ngang |
-
-Chưa kiểm trên Google thật (Apps Script / Sheets thật) — làm theo [UPGRADE_V2.1.md](UPGRADE_V2.1.md) và checklist nghiệm thu trong
-[TESTING.md](TESTING.md) khi triển khai.
+| `npm run test:e2e` (workerd + Chrome) | 36 ca — gồm cập nhật từ Excel, phiếu nhập / xuất kho, đồng phục cấp phát + cho mượn → ký → trả, quét 22 trang ở 1440 / 375px |
+| **Production 17/11/2026** (Google + Cloudflare thật) | Nâng cấp theo [UPGRADE §5](UPGRADE_V2.1.md#5-nhật-ký-triển-khai-production--17112026); *Kiểm tra cấu hình* “hợp lệ”; `/api/health` 2.1.0; quét 21 trang quản trị bằng phiên quản trị thật: không lỗi console / API, không tràn ngang (sau khi sửa lỗi sr-only ở danh sách biên bản) |
 
 ## 5. Lộ trình đề xuất (v2.2)
 
@@ -178,3 +178,5 @@ Chưa kiểm trên Google thật (Apps Script / Sheets thật) — làm theo [UP
    cũ (GAS-3); ghi / hiện thời điểm sao lưu thành công (GAS-10).
 4. VPP: chặn đổi ĐVT khi còn tồn (VPP-5), sửa ghép lại (VPP-6), khóa lạc quan khi sửa (VPP-8).
 5. Chất lượng: lint + kiểm kiểu cho `apps-script/*.gs`, đo độ phủ, Dependabot + `npm audit` trong CI, môi trường staging.
+6. Hiệu năng: trang *Cài đặt* chờ 30–45 giây trên dữ liệu thật (đọc tiêu đề / mã định danh / số dòng của 19 sheet + Drive + MailApp mỗi lần
+   mở) — lưu kết quả kiểm tra vào cache 5 phút, nút “Kiểm tra lại”.
