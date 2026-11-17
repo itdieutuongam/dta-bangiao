@@ -2,7 +2,7 @@ import { Pencil, Plus } from 'lucide-react';
 import { useEffect, useLayoutEffect, useMemo, useState } from 'react';
 import { LIMITS } from '../../../../shared/constants';
 import { normSaveSchema, toFieldErrors } from '../../../../shared/schemas';
-import { formatVnd, type DepartmentScope, type VppNorm, type VppNormsResponse, type VppProduct } from '../../../../shared/vpp';
+import { DEFAULT_SCOPE_DEPARTMENT, formatVnd, type DepartmentScope, type VppNorm, type VppNormsResponse, type VppProduct } from '../../../../shared/vpp';
 import { Button } from '../../../components/ui/Button';
 import { ConfirmDialog } from '../../../components/ui/Dialog';
 import { describedBy, Field } from '../../../components/ui/Field';
@@ -220,6 +220,7 @@ function mappingSource(d: DepartmentScope): string {
   if (d.mapping === 'NONE') return 'Không áp dụng (gắn thủ công)';
   if (d.scope?.source === 'MAPPING') return 'Gắn thủ công';
   if (d.scope?.source === 'AUTO') return 'Tự khớp theo tên';
+  if (d.scope?.source === 'DEFAULT') return 'Theo nhóm mặc định';
   return 'Chưa gắn';
 }
 
@@ -232,7 +233,13 @@ function DepartmentMapping({ data, onChanged }: { data: VppNormsResponse; onChan
     setBusy(department);
     try {
       await vppSetScopeMapping(department, scopeId);
-      toast.show(`Đã cập nhật định mức cho phòng ban “${department}”.`);
+      toast.show(
+        department === DEFAULT_SCOPE_DEPARTMENT
+          ? scopeId
+            ? 'Đã đặt nhóm định mức mặc định — phòng ban chưa gắn và nhân viên chưa có phòng ban dùng nhóm này.'
+            : 'Đã bỏ nhóm định mức mặc định.'
+          : `Đã cập nhật định mức cho phòng ban “${department}”.`,
+      );
       onChanged();
     } catch (err) {
       handleError(err, 'Không cập nhật được phòng ban.');
@@ -248,9 +255,30 @@ function DepartmentMapping({ data, onChanged }: { data: VppNormsResponse; onChan
           Phòng ban → phạm vi định mức
         </h2>
         <p className="mt-0.5 text-xs text-stone-500">
-          Phòng ban của người nhận quyết định định mức áp dụng. “Tự khớp theo tên” chỉ khớp khi tên phòng ban trùng tên phạm vi (bỏ chữ “phòng”).
-          Phiếu đã tạo giữ nguyên phạm vi lúc tạo.
+          Phòng ban của người nhận quyết định định mức áp dụng (các phòng ban cùng một nhóm dùng chung định mức tháng của nhóm). “Tự khớp
+          theo tên” chỉ khớp khi tên phòng ban trùng tên phạm vi (bỏ chữ “phòng”); không khớp → theo nhóm mặc định. Phiếu đã tạo giữ nguyên
+          phạm vi lúc tạo.
         </p>
+      </div>
+      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-stone-200 bg-brand-50/40 px-4 py-3">
+        <div className="min-w-0">
+          <p className="font-medium text-stone-900">Nhóm mặc định</p>
+          <p className="text-xs text-stone-500">Cho phòng ban chưa gắn / không khớp tên và nhân viên chưa có phòng ban (kể cả phòng ban mới sau này).</p>
+        </div>
+        <select
+          className="field-input w-full sm:w-64"
+          aria-label="Nhóm định mức mặc định"
+          value={data.defaultScopeId ?? ''}
+          disabled={busy === DEFAULT_SCOPE_DEPARTMENT}
+          onChange={(e) => void change(DEFAULT_SCOPE_DEPARTMENT, e.target.value)}
+        >
+          <option value="">Không có mặc định</option>
+          {data.scopes.map((s) => (
+            <option key={s.scopeId} value={s.scopeId}>
+              {s.scopeName}
+            </option>
+          ))}
+        </select>
       </div>
       {data.departments.length === 0 ? (
         <p className="px-4 py-6 text-center text-sm text-stone-500">Chưa có nhân viên đang làm việc nào có phòng ban.</p>
@@ -274,7 +302,7 @@ function DepartmentMapping({ data, onChanged }: { data: VppNormsResponse; onChan
                   disabled={busy === d.department}
                   onChange={(e) => void change(d.department, e.target.value)}
                 >
-                  <option value="">Tự khớp theo tên</option>
+                  <option value="">Tự khớp theo tên / mặc định</option>
                   <option value="NONE">Không áp dụng định mức</option>
                   {data.scopes.map((s) => (
                     <option key={s.scopeId} value={s.scopeId}>

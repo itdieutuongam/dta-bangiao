@@ -24,7 +24,7 @@ export interface Employee {
 /** Nhân viên trên trang quản trị "Nhân viên" (kèm trạng thái + phạm vi định mức VPP + hồ sơ đồng phục). */
 export interface AdminEmployee extends Employee {
   status?: 'ACTIVE' | 'INACTIVE';
-  vppScope?: { scopeId: string; scopeName: string; source: 'MAPPING' | 'AUTO' } | null;
+  vppScope?: { scopeId: string; scopeName: string; source: 'MAPPING' | 'AUTO' | 'DEFAULT' } | null;
   /** NHAN_VIEN.gender (đã chuẩn hóa) — '' = chưa khai báo. */
   gender?: EmployeeGender | '';
   /** NHAN_VIEN.uniform_size — size đồng phục thường dùng. */

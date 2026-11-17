@@ -248,11 +248,20 @@ function upsertSetting_(key, value, description) {
 //   • Phạm vi (scope) = nhóm định mức trong VPP_DINH_MUC (ví dụ KINH_DOANH "PHÒNG KINH DOANH", VAN_PHONG "VĂN PHÒNG").
 //   • Phòng ban của nhân viên → phạm vi:
 //       1) khóa CAU_HINH "VPP_SCOPE:<PHONG_BAN>" = <scope_id> (admin gắn trên trang Định mức; "NONE" = không áp dụng);
-//       2) nếu chưa gắn: tên phòng ban trùng khớp tên phạm vi (bỏ dấu, bỏ chữ "phòng" ở đầu).
-//     Không tự đoán theo tên gần giống — phòng ban chưa khớp hiện trong "Dữ liệu cần kiểm tra".
+//       2) nếu chưa gắn: tên phòng ban trùng khớp tên phạm vi (bỏ dấu, bỏ chữ "phòng" ở đầu);
+//       3) không khớp (hoặc nhân viên chưa có phòng ban): PHẠM VI MẶC ĐỊNH — khóa CAU_HINH "VPP_SCOPE_DEFAULT" (trang Định mức,
+//          "Nhóm mặc định"; để trống = không có mặc định). Phòng ban đã chọn "Không áp dụng" (NONE) KHÔNG nhận mặc định.
+//     Không tự đoán theo tên gần giống — phòng ban không khớp và không có mặc định hiện trong "Dữ liệu cần kiểm tra".
 // ============================================================================
 
 var SCOPE_SETTING_PREFIX = 'VPP_SCOPE:';
+var DEFAULT_SCOPE_SETTING = 'VPP_SCOPE_DEFAULT';
+/** Giá trị "phòng ban" đặc biệt trong API gắn phòng ban = đặt nhóm mặc định. */
+var DEFAULT_SCOPE_DEPARTMENT = '*';
+
+function defaultNormScopeId_(settings) {
+  return String((settings || getSettings_())[DEFAULT_SCOPE_SETTING] || '').trim().toUpperCase();
+}
 
 function scopeSettingKey_(department) {
   return SCOPE_SETTING_PREFIX + slugKey_(department, 80);
@@ -287,11 +296,16 @@ function listNormScopes_() {
 
 function resolveDepartmentScope_(department, scopes) {
   var dept = cleanLine_(department);
-  if (!dept) return null;
   scopes = scopes || listNormScopes_();
   var byId = {};
   scopes.forEach(function (s) { byId[s.scopeId] = s; });
-  var mapped = String(getSettings_()[scopeSettingKey_(dept)] || '').trim().toUpperCase();
+  var settings = getSettings_();
+  var fallback = function () {
+    var def = defaultNormScopeId_(settings);
+    return def && byId[def] ? { scopeId: def, scopeName: byId[def].scopeName, source: 'DEFAULT' } : null;
+  };
+  if (!dept) return fallback();
+  var mapped = String(settings[scopeSettingKey_(dept)] || '').trim().toUpperCase();
   if (mapped === 'NONE') return null;
   if (mapped && byId[mapped]) return { scopeId: mapped, scopeName: byId[mapped].scopeName, source: 'MAPPING' };
   var key = scopeMatchKey_(dept);
@@ -301,5 +315,5 @@ function resolveDepartmentScope_(department, scopes) {
       return { scopeId: s.scopeId, scopeName: s.scopeName, source: 'AUTO' };
     }
   }
-  return null;
+  return fallback();
 }

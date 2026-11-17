@@ -1266,7 +1266,11 @@ function apiVppListNorms_() {
     var mapping = String(settings[scopeSettingKey_(d)] || '').trim().toUpperCase();
     return { department: d, employeeCount: deptCount[d], scope: s, mapping: mapping };
   });
-  return { norms: norms, scopes: scopes, departments: departments };
+  var def = defaultNormScopeId_(settings);
+  return {
+    norms: norms, scopes: scopes, departments: departments,
+    defaultScopeId: def && scopes.some(function (s) { return s.scopeId === def; }) ? def : ''
+  };
 }
 
 /**
@@ -1373,12 +1377,27 @@ function apiVppSaveNorm_(data) {
   });
 }
 
-/** Gắn phòng ban → phạm vi định mức (scopeId rỗng = bỏ gắn, dùng tự khớp theo tên; "NONE" = không áp dụng). */
+/**
+ * Gắn phòng ban → phạm vi định mức (scopeId rỗng = bỏ gắn, dùng tự khớp theo tên / mặc định; "NONE" = không áp dụng).
+ * department = "*" → đặt NHÓM MẶC ĐỊNH cho phòng ban chưa gắn / không khớp / nhân viên chưa có phòng ban (scopeId rỗng = bỏ mặc định).
+ */
 function apiVppSetScopeMapping_(data) {
   var actor = sanitizeActor_(data.actor);
   var department = cleanLine_(data.department);
   var scopeId = String(data.scopeId || '').trim().toUpperCase();
   if (!department) throw validationError_({ department: 'Thiếu phòng ban' });
+  if (department === DEFAULT_SCOPE_DEPARTMENT) {
+    if (scopeId === 'NONE') scopeId = '';
+    if (scopeId && !listNormScopes_().some(function (s) { return s.scopeId === scopeId; })) {
+      throw validationError_({ scopeId: 'Phạm vi định mức không tồn tại' });
+    }
+    return withScriptLock_(function () {
+      upsertSetting_(DEFAULT_SCOPE_SETTING, scopeId, 'Phạm vi định mức VPP mặc định cho phòng ban chưa gắn / nhân viên chưa có phòng ban');
+      appendHistory_(DEFAULT_SCOPE_SETTING, 'VPP_SCOPE_DEFAULT', actorLabel_(actor), '', scopeId,
+        'Nhóm định mức mặc định → ' + (scopeId || '(không có mặc định)'), null, 'VPP_NORM');
+      return { department: DEFAULT_SCOPE_DEPARTMENT, defaultScopeId: scopeId };
+    });
+  }
   if (scopeId && scopeId !== 'NONE' && !/^[A-Z0-9_]{1,40}$/.test(scopeId)) throw validationError_({ scopeId: 'Phạm vi không hợp lệ' });
   if (scopeId && scopeId !== 'NONE' && !listNormScopes_().some(function (s) { return s.scopeId === scopeId; })) {
     throw validationError_({ scopeId: 'Phạm vi định mức không tồn tại' });

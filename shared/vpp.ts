@@ -143,7 +143,8 @@ export interface HandoverContextProduct extends VppProduct {
 export interface NormScope {
   scopeId: string;
   scopeName: string;
-  source?: 'MAPPING' | 'AUTO';
+  /** MAPPING = gắn thủ công · AUTO = tự khớp theo tên · DEFAULT = theo nhóm mặc định (phòng ban chưa gắn / chưa có phòng ban). */
+  source?: 'MAPPING' | 'AUTO' | 'DEFAULT';
 }
 
 export interface VppHandoverContext {
@@ -190,7 +191,12 @@ export interface VppNormsResponse {
   norms: VppNorm[];
   scopes: NormScope[];
   departments: DepartmentScope[];
+  /** Nhóm mặc định cho phòng ban chưa gắn / không khớp / nhân viên chưa có phòng ban ('' = không có). Apps Script cũ không trả. */
+  defaultScopeId?: string;
 }
+
+/** Giá trị "phòng ban" đặc biệt khi gọi API gắn phòng ban = đặt nhóm định mức mặc định (khớp DEFAULT_SCOPE_DEPARTMENT ở Apps Script). */
+export const DEFAULT_SCOPE_DEPARTMENT = '*';
 
 export interface StockAlertItem {
   productId: string;

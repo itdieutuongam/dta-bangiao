@@ -712,6 +712,35 @@ describe('VPP – phân quyền & lịch sử', () => {
     expect(dept('Kinh doanh')).toMatchObject({ mapping: '', scope: { scopeId: 'KINH_DOANH', source: 'AUTO' } });
     expect(env.admin('vppSetScopeMapping', { department: 'IT', scopeId: 'KHONG_CO' }).error?.code).toBe('VALIDATION_ERROR');
   });
+
+  it('[17/11/2026] nhóm định mức MẶC ĐỊNH: phòng ban chưa gắn / không khớp và nhân viên chưa có phòng ban đều có định mức; "Không áp dụng" vẫn giữ', () => {
+    const env = vppEnv();
+    const dept = (name: string) => env.admin('vppListNorms').data.departments.find((d: any) => d.department === name);
+    expect(env.admin('vppListNorms').data.defaultScopeId).toBe('');
+    expect(dept('Kế toán')).toMatchObject({ scope: null });
+    expect(env.admin('vppDataReview').data.unmappedDepartments.length).toBeGreaterThan(0);
+
+    expect(env.admin('vppSetScopeMapping', { department: '*', scopeId: 'VAN_PHONG' }).ok).toBe(true);
+    expect(env.admin('vppListNorms').data.defaultScopeId).toBe('VAN_PHONG');
+    expect(dept('Kế toán')).toMatchObject({ mapping: '', scope: { scopeId: 'VAN_PHONG', source: 'DEFAULT' } });
+    expect(dept('Kinh doanh')).toMatchObject({ scope: { scopeId: 'KINH_DOANH', source: 'AUTO' } }); // khớp tên vẫn ưu tiên
+    expect(env.admin('vppSetScopeMapping', { department: 'IT', scopeId: 'KINH_DOANH' }).ok).toBe(true);
+    expect(dept('IT')).toMatchObject({ scope: { scopeId: 'KINH_DOANH', source: 'MAPPING' } }); // gắn thủ công ưu tiên
+    expect(env.admin('vppSetScopeMapping', { department: 'Kế toán', scopeId: 'NONE' }).ok).toBe(true);
+    expect(dept('Kế toán')).toMatchObject({ mapping: 'NONE', scope: null }); // "Không áp dụng" không nhận mặc định
+    // Không còn phòng ban "chưa gắn" ở Dữ liệu cần kiểm tra
+    env.rt.run('invalidateCaches_');
+    expect(env.admin('vppDataReview').data.unmappedDepartments).toEqual([]);
+    // Ngữ cảnh tạo phiếu VPP của người nhận ở phòng ban chưa gắn → nhóm mặc định
+    const others = env.admin('adminListEmployees', { includeInactive: true }).data.employees.filter((e: any) => e.vppScope?.source === 'DEFAULT');
+    expect(others.length).toBeGreaterThan(0);
+    expect(env.admin('vppHandoverContext', { receiverEmployeeId: others[0].employeeId }).data.scope).toMatchObject({ scopeId: 'VAN_PHONG', source: 'DEFAULT' });
+
+    // Bỏ mặc định; phạm vi không tồn tại bị từ chối
+    expect(env.admin('vppSetScopeMapping', { department: '*', scopeId: 'KHONG_CO' }).error?.code).toBe('VALIDATION_ERROR');
+    expect(env.admin('vppSetScopeMapping', { department: '*', scopeId: '' }).ok).toBe(true);
+    expect(env.admin('vppListNorms').data.defaultScopeId).toBe('');
+  });
 });
 
 describe('VPP – lỗi phát hiện khi rà soát độc lập (REVIEW-1…8)', () => {

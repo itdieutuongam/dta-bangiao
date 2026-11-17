@@ -172,7 +172,7 @@ function ScopeCell({ employee }: { employee: AdminEmployee }) {
   return (
     <span className="text-stone-700">
       {employee.vppScope.scopeName}
-      <span className="ml-1 text-stone-400">({employee.vppScope.source === 'MAPPING' ? 'gắn thủ công' : 'tự khớp'})</span>
+      <span className="ml-1 text-stone-400">({employee.vppScope.source === 'MAPPING' ? 'gắn thủ công' : employee.vppScope.source === 'DEFAULT' ? 'mặc định' : 'tự khớp'})</span>
     </span>
   );
 }
